@@ -3,6 +3,4 @@ librosa
 numpy
 pandas
 plotly
-streamlit-webrtc
-soundfile
-resampy
+mutagen

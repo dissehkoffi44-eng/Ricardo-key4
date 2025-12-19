@@ -89,7 +89,7 @@ def get_full_analysis(file_buffer):
     }
 
 # --- INTERFACE ---
-st.markdown("<h1 style='text-align: center;'>RICARDO_DJ228 | ANALYSEUR V3 ULTRA</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>RICARDO_DJ228 | ANALYSEUR V4 ULTRA</h1>", unsafe_allow_html=True)
 
 file = st.file_uploader("Importer une track audio", type=['mp3', 'wav', 'flac'])
 

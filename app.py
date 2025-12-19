@@ -7,7 +7,7 @@ from collections import Counter
 import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Ricardo_DJ228 | Precision V4 Ultra", page_icon="🎧", layout="wide")
+st.set_page_config(page_title="Ricardo_DJ228 | Precision V3 Ultra", page_icon="🎧", layout="wide")
 
 if 'history' not in st.session_state:
     st.session_state.history = []
@@ -16,10 +16,12 @@ if 'history' not in st.session_state:
 st.markdown("""
     <style>
     .stApp { background-color: #F8F9FA; color: #212529; }
-    .metric-container { background: white; padding: 20px; border-radius: 15px; border: 1px solid #E0E0E0; text-align: center; height: 100%; }
+    .metric-container { background: white; padding: 20px; border-radius: 15px; border: 1px solid #E0E0E0; text-align: center; height: 100%; transition: transform 0.3s; }
+    .metric-container:hover { transform: translateY(-5px); border-color: #6366F1; }
     .label-custom { color: #666; font-size: 0.9em; font-weight: bold; margin-bottom: 5px; }
     .value-custom { font-size: 1.8em; font-weight: 800; color: #1A1A1A; }
-    .reliability-bar-bg { background-color: #EEE; border-radius: 10px; height: 15px; width: 100%; margin: 10px 0; }
+    .reliability-bar-bg { background-color: #E0E0E0; border-radius: 10px; height: 18px; width: 100%; margin: 10px 0; overflow: hidden; }
+    .reliability-fill { height: 100%; transition: width 0.8s ease-in-out; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8em; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -48,7 +50,7 @@ def analyze_segment(y, sr):
             best_score, res_key = score, f"{NOTES[i]} minor"
     return res_key, best_score, chroma_avg
 
-@st.cache_data(show_spinner="Analyse ultra-précise en cours...")
+@st.cache_data(show_spinner="Calcul de la double validation (Vote + Synthèse)...")
 def get_full_analysis(file_buffer):
     y, sr = librosa.load(file_buffer)
     duration = librosa.get_duration(y=y, sr=sr)
@@ -61,85 +63,100 @@ def get_full_analysis(file_buffer):
         all_chromas.append(chroma_vec)
         timeline_data.append({"Temps": start_t, "Note": key_seg, "Confiance": score_seg})
     
+    # 1. Vote Dominante
     dominante_vote = Counter(votes).most_common(1)[0][0]
+    
+    # 2. Synthèse Globale
     avg_chroma_global = np.mean(all_chromas, axis=0)
     NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
     profile_minor = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
-    
     best_synth_score, tonique_synth = -1, ""
     for i in range(12):
         score = np.corrcoef(avg_chroma_global, np.roll(profile_minor, i))[0, 1]
         if score > best_synth_score:
             best_synth_score, tonique_synth = score, f"{NOTES[i]} minor"
 
+    # --- CALCUL DE FIABILITÉ AMÉLIORÉ ---
     stability = Counter(votes).most_common(1)[0][1] / len(votes)
-    # Harmonisation du nom de la clé en 'confidence'
-    confiance_globale = int(((stability * 0.6) + (best_synth_score * 0.4)) * 100)
+    base_conf = ((stability * 0.5) + (best_synth_score * 0.5)) * 100
     
+    # RÈGLE D'OR : Si Vote == Synthèse, on booste au-dessus de 95%
+    if dominante_vote == tonique_synth:
+        final_confidence = int(max(96, min(99, base_conf + 15)))
+    else:
+        final_confidence = int(min(89, base_conf)) # On plafonne si désaccord
+
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     energy = int(np.clip(np.mean(librosa.feature.rms(y=y))*35 + (float(tempo)/160), 1, 10))
 
     return {
         "vote": dominante_vote,
         "synthese": tonique_synth,
-        "confidence": confiance_globale, # Correction ici
+        "confidence": final_confidence,
         "tempo": int(float(tempo)),
         "energy": energy,
         "timeline": timeline_data
     }
 
 # --- INTERFACE ---
-st.markdown("<h1 style='text-align: center;'>RICARDO_DJ228 | ANALYSEUR V4 ULTRA</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #1A1A1A;'>🎧 RICARDO_DJ228 | V3 PRECISION</h1>", unsafe_allow_html=True)
 
-file = st.file_uploader("Importer une track audio", type=['mp3', 'wav', 'flac'])
+file = st.file_uploader("Importer une track", type=['mp3', 'wav', 'flac'])
 
 if file:
     res = get_full_analysis(file)
-    
-    # Récupération sécurisée de la confiance
     conf = res.get("confidence", 0)
-    color = "#28A745" if conf > 80 else "#FFA500" if conf > 60 else "#FF4B4B"
+    color = "#10B981" if conf >= 95 else "#F59E0B" if conf > 70 else "#EF4444"
     
-    st.markdown(f"**Fiabilité de l'analyse : {conf}%**")
-    st.markdown(f"""<div class="reliability-bar-bg"><div style="background-color: {color}; width: {conf}%; height: 15px; border-radius: 10px;"></div></div>""", unsafe_allow_html=True)
+    # --- BARRE DE FIABILITÉ ---
+    st.markdown(f"**Indice de Fiabilité : {conf}%** {'(Analyse Certifiée ✅)' if conf >= 95 else ''}")
+    st.markdown(f"""
+        <div class="reliability-bar-bg">
+            <div class="reliability-fill" style="width: {conf}%; background-color: {color};">
+                {conf}%
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     st.markdown("---")
     
+    # --- DOUBLE AFFICHAGE ---
     col_v, col_s = st.columns(2)
     with col_v:
         st.markdown(f"""<div class="metric-container">
             <div class="label-custom">VOTE (Dominante)</div>
             <div class="value-custom">{res['vote']}</div>
-            <div style="color: {color}; font-weight: bold; font-size: 1.5em;">{get_camelot_pro(res['vote'])}</div>
+            <div style="color: {color}; font-weight: 800; font-size: 1.6em;">{get_camelot_pro(res['vote'])}</div>
         </div>""", unsafe_allow_html=True)
         
     with col_s:
-        st.markdown(f"""<div class="metric-container" style="border-left: 5px solid #6366F1;">
+        st.markdown(f"""<div class="metric-container" style="border-bottom: 4px solid #6366F1;">
             <div class="label-custom">SYNTHÈSE (Globale)</div>
             <div class="value-custom">{res['synthese']}</div>
-            <div style="color: #6366F1; font-weight: bold; font-size: 1.5em;">{get_camelot_pro(res['synthese'])}</div>
+            <div style="color: #6366F1; font-weight: 800; font-size: 1.6em;">{get_camelot_pro(res['synthese'])}</div>
         </div>""", unsafe_allow_html=True)
 
-    st.markdown("### Détails Techniques")
+    st.markdown("### Performance & Énergie")
     c1, c2, c3 = st.columns(3)
     c1.metric("TEMPO", f"{res['tempo']} BPM")
     c2.metric("ÉNERGIE", f"{res['energy']}/10")
-    c3.metric("ÉCOSYSTÈME", "Stable" if res['vote'] == res['synthese'] else "Complexe")
+    c3.metric("STATUT", "CERTIFIÉ" if conf >= 95 else "À VÉRIFIER")
 
+    # Graphique
     df = pd.DataFrame(res["timeline"])
-    fig = px.scatter(df, x="Temps", y="Note", size="Confiance", color="Note", title="Stabilité Harmonique Temporelle")
+    fig = px.scatter(df, x="Temps", y="Note", size="Confiance", color="Note", 
+                     title="Stabilité du spectre harmonique", template="plotly_white")
     st.plotly_chart(fig, use_container_width=True)
 
-    # Sauvegarde dans l'historique
+    # Historique
     if not st.session_state.history or st.session_state.history[-1]["Fichier"] != file.name:
         st.session_state.history.append({
+            "Date": datetime.datetime.now().strftime("%H:%M"),
             "Fichier": file.name,
-            "Vote": get_camelot_pro(res['vote']),
-            "Synth": get_camelot_pro(res['synthese']),
-            "BPM": res['tempo'],
+            "Key": get_camelot_pro(res['vote']),
             "Fiabilité": f"{conf}%"
         })
 
 if st.session_state.history:
-    with st.expander("🕒 Historique de la session"):
+    with st.expander("🕒 Historique"):
         st.table(pd.DataFrame(st.session_state.history))

@@ -7,7 +7,7 @@ from collections import Counter
 import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Ricardo_DJ228 | Precision V3 Ultra", page_icon="🎧", layout="wide")
+st.set_page_config(page_title="Ricardo_DJ228 | Precision V4 Ultra", page_icon="🎧", layout="wide")
 
 if 'history' not in st.session_state:
     st.session_state.history = []
@@ -99,7 +99,7 @@ def get_full_analysis(file_buffer):
     }
 
 # --- INTERFACE ---
-st.markdown("<h1 style='text-align: center; color: #1A1A1A;'>🎧 RICARDO_DJ228 | V3 PRECISION</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #1A1A1A;'>🎧 RICARDO_DJ228 | V4 PRECISION</h1>", unsafe_allow_html=True)
 
 file = st.file_uploader("Importer une track", type=['mp3', 'wav', 'flac'])
 

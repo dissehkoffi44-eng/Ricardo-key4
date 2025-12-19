@@ -4,10 +4,11 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 from collections import Counter
-import datetime
+from datetime import datetime
+import io
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Ricardo_DJ228 | Precision V4 Ultra", page_icon="🎧", layout="wide")
+st.set_page_config(page_title="Ricardo_DJ228 | Precision V4.5 Pro Hybrid", page_icon="🎧", layout="wide")
 
 if 'history' not in st.session_state:
     st.session_state.history = []
@@ -19,10 +20,9 @@ st.markdown("""
     .metric-container { background: white; padding: 20px; border-radius: 15px; border: 1px solid #E0E0E0; text-align: center; height: 100%; transition: transform 0.3s; }
     .metric-container:hover { transform: translateY(-5px); border-color: #6366F1; }
     .label-custom { color: #666; font-size: 0.9em; font-weight: bold; margin-bottom: 5px; }
-    .value-custom { font-size: 1.8em; font-weight: 800; color: #1A1A1A; }
+    .value-custom { font-size: 1.6em; font-weight: 800; color: #1A1A1A; }
     .reliability-bar-bg { background-color: #E0E0E0; border-radius: 10px; height: 18px; width: 100%; margin: 10px 0; overflow: hidden; }
     .reliability-fill { height: 100%; transition: width 0.8s ease-in-out; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8em; font-weight: bold; }
-    .warning-box { background-color: #FFFBEB; border-left: 5px solid #F59E0B; padding: 15px; border-radius: 5px; margin: 10px 0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -34,107 +34,132 @@ def get_camelot_pro(key_mode_str):
     try:
         parts = key_mode_str.split(" ")
         key, mode = parts[0], parts[1].lower()
-        return BASE_CAMELOT_MINOR.get(key, "??") if mode in ['minor', 'dorian'] else BASE_CAMELOT_MAJOR.get(key, "??")
+        if mode in ['minor', 'dorian']:
+            return BASE_CAMELOT_MINOR.get(key, "??")
+        else:
+            return BASE_CAMELOT_MAJOR.get(key, "??")
     except: return "??"
 
-# --- MOTEUR D'ANALYSE ---
+# --- MOTEUR ANALYSE ---
+def check_drum_alignment(y, sr):
+    flatness = np.mean(librosa.feature.spectral_flatness(y=y))
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    chroma_max_mean = np.mean(np.max(chroma, axis=0))
+    return flatness < 0.045 or chroma_max_mean > 0.75
+
 def analyze_segment(y, sr):
     tuning = librosa.estimate_tuning(y=y, sr=sr)
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr, tuning=tuning)
     chroma_avg = np.mean(chroma, axis=1)
+    
     NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    profile_minor = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+    PROFILES = {
+        "major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88],
+        "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17],
+        "dorian": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 2.69, 3.98, 3.34, 3.17]
+    }
+    
     best_score, res_key = -1, ""
-    for i in range(12):
-        score = np.corrcoef(chroma_avg, np.roll(profile_minor, i))[0, 1]
-        if score > best_score:
-            best_score, res_key = score, f"{NOTES[i]} minor"
+    for mode, profile in PROFILES.items():
+        for i in range(12):
+            score = np.corrcoef(chroma_avg, np.roll(profile, i))[0, 1]
+            if score > best_score:
+                best_score, res_key = score, f"{NOTES[i]} {mode}"
     return res_key, best_score, chroma_avg
 
-@st.cache_data(show_spinner="Calcul de la double validation...")
+@st.cache_data(show_spinner="Analyse spectrale hybride...")
 def get_full_analysis(file_buffer):
     y, sr = librosa.load(file_buffer)
-    duration = librosa.get_duration(y=y, sr=sr)
+    is_aligned = check_drum_alignment(y, sr)
+    
+    # Nettoyage selon le type de track
+    if is_aligned:
+        y_final = y
+    else:
+        y_harm, _ = librosa.effects.hpss(y)
+        y_final = y_harm
+
+    duration = librosa.get_duration(y=y_final, sr=sr)
     timeline_data, votes, all_chromas = [], [], []
     
-    for start_t in range(0, int(duration) - 15, 10):
-        y_seg = y[int(start_t*sr):int((start_t+15)*sr)]
+    # Analyse par segments
+    for start_t in range(0, int(duration) - 10, 10):
+        y_seg = y_final[int(start_t*sr):int((start_t+10)*sr)]
         key_seg, score_seg, chroma_vec = analyze_segment(y_seg, sr)
         votes.append(key_seg)
         all_chromas.append(chroma_vec)
-        timeline_data.append({"Temps": start_t, "Note": key_seg, "Confiance": score_seg})
+        timeline_data.append({"Temps": start_t, "Note": key_seg, "Confiance": round(score_seg * 100, 1)})
     
-    # --- DETECTION DE CHANGEMENT DE TONALITÉ ---
-    first_half = votes[:len(votes)//2]
-    second_half = votes[len(votes)//2:]
-    key_start = Counter(first_half).most_common(1)[0][0]
-    key_end = Counter(second_half).most_common(1)[0][0]
-    has_switch = key_start != key_end
-
     dominante_vote = Counter(votes).most_common(1)[0][0]
+    
+    # Synthèse globale
     avg_chroma_global = np.mean(all_chromas, axis=0)
     NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    profile_minor = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+    PROFILES = {
+        "major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88],
+        "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+    }
+    
     best_synth_score, tonique_synth = -1, ""
-    for i in range(12):
-        score = np.corrcoef(avg_chroma_global, np.roll(profile_minor, i))[0, 1]
-        if score > best_synth_score:
-            best_synth_score, tonique_synth = score, f"{NOTES[i]} minor"
+    for mode, profile in PROFILES.items():
+        for i in range(12):
+            score = np.corrcoef(avg_chroma_global, np.roll(profile, i))[0, 1]
+            if score > best_synth_score:
+                best_synth_score, tonique_synth = score, f"{NOTES[i]} {mode}"
 
+    # Calcul stabilité
     stability = Counter(votes).most_common(1)[0][1] / len(votes)
     base_conf = ((stability * 0.5) + (best_synth_score * 0.5)) * 100
+    final_confidence = int(max(96, min(99, base_conf + 15))) if dominante_vote == tonique_synth else int(min(89, base_conf))
     
-    if dominante_vote == tonique_synth:
-        final_confidence = int(max(96, min(99, base_conf + 15)))
-    else:
-        final_confidence = int(min(89, base_conf))
-
+    # Tempo et Énergie
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     energy = int(np.clip(np.mean(librosa.feature.rms(y=y))*35 + (float(tempo)/160), 1, 10))
 
     return {
         "vote": dominante_vote, "synthese": tonique_synth, "confidence": final_confidence,
-        "tempo": int(float(tempo)), "energy": energy, "timeline": timeline_data,
-        "has_switch": has_switch, "key_start": key_start, "key_end": key_end
+        "tempo": int(float(tempo)), "energy": energy, "timeline": timeline_data
     }
 
 # --- INTERFACE ---
-st.markdown("<h1 style='text-align: center; color: #1A1A1A;'>🎧 RICARDO_DJ228 | V4.1 PRECISION</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #1A1A1A;'>🎧 RICARDO_DJ228 | V4.5 PRO HYBRID</h1>", unsafe_allow_html=True)
+tabs = st.tabs(["📁 ANALYSE MULTI-MODES", "🕒 HISTORIQUE"])
 
-file = st.file_uploader("Importer une track", type=['mp3', 'wav', 'flac'])
+with tabs[0]:
+    files = st.file_uploader("Importer des tracks", type=['mp3', 'wav', 'flac'], accept_multiple_files=True)
+    if files:
+        for file in files:
+            with st.expander(f"🎵 {file.name}", expanded=True):
+                res = get_full_analysis(file)
+                conf = res["confidence"]
+                color = "#10B981" if conf >= 95 else "#F59E0B"
+                
+                # Historique
+                entry = {"Date": datetime.now().strftime("%d/%m %H:%M"), "Fichier": file.name, "Note": res['synthese'], "Camelot": get_camelot_pro(res['synthese']), "BPM": res['tempo'], "Energie": res['energy']}
+                if not any(h['Fichier'] == file.name for h in st.session_state.history):
+                    st.session_state.history.insert(0, entry)
 
-if file:
-    res = get_full_analysis(file)
-    conf = res.get("confidence", 0)
-    color = "#10B981" if conf >= 95 else "#F59E0B" if conf > 70 else "#EF4444"
-    
-    st.markdown(f"**Indice de Fiabilité : {conf}%** {'(Analyse Certifiée ✅)' if conf >= 95 else ''}")
-    st.markdown(f"""<div class="reliability-bar-bg"><div class="reliability-fill" style="width: {conf}%; background-color: {color};">{conf}%</div></div>""", unsafe_allow_html=True)
-    
-    if res["has_switch"]:
-        st.markdown(f"""<div class="warning-box">⚠️ <b>Changement de tonalité détecté :</b> La track semble passer de 
-        {get_camelot_pro(res['key_start'])} à {get_camelot_pro(res['key_end'])}. Attention pour le mix !</div>""", unsafe_allow_html=True)
-    
-    st.markdown("---")
-    col_v, col_s = st.columns(2)
-    with col_v:
-        st.markdown(f"""<div class="metric-container"><div class="label-custom">VOTE (Dominante)</div><div class="value-custom">{res['vote']}</div><div style="color: {color}; font-weight: 800; font-size: 1.6em;">{get_camelot_pro(res['vote'])}</div></div>""", unsafe_allow_html=True)
-    with col_s:
-        st.markdown(f"""<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE (Globale)</div><div class="value-custom">{res['synthese']}</div><div style="color: #6366F1; font-weight: 800; font-size: 1.6em;">{get_camelot_pro(res['synthese'])}</div></div>""", unsafe_allow_html=True)
+                # UI Confiance
+                st.markdown(f"**Indice de Précision : {conf}%**")
+                st.markdown(f"""<div class="reliability-bar-bg"><div class="reliability-fill" style="width: {conf}%; background-color: {color};">{conf}%</div></div>""", unsafe_allow_html=True)
+                
+                c1, c2, c3 = st.columns(3)
+                with c1: st.markdown(f"""<div class="metric-container"><div class="label-custom">DOMINANTE</div><div class="value-custom">{res['vote']}</div><div style="color: {color}; font-weight: 800; font-size: 1.6em;">{get_camelot_pro(res['vote'])}</div></div>""", unsafe_allow_html=True)
+                with c2: st.markdown(f"""<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE FINALE</div><div class="value-custom">{res['synthese']}</div><div style="color: #6366F1; font-weight: 800; font-size: 1.6em;">{get_camelot_pro(res['synthese'])}</div></div>""", unsafe_allow_html=True)
+                with c3: st.markdown(f"""<div class="metric-container"><div class="label-custom">BPM & ÉNERGIE</div><div class="value-custom">{res['tempo']} BPM</div><div style="color: #6366F1; font-weight: 800; font-size: 1.2em;">E: {res['energy']}/10</div></div>""", unsafe_allow_html=True)
 
-    st.markdown("### Performance & Énergie")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("TEMPO", f"{res['tempo']} BPM")
-    c2.metric("ÉNERGIE", f"{res['energy']}/10")
-    c3.metric("STATUT", "CERTIFIÉ" if conf >= 95 else "À VÉRIFIER")
+                # Graphique
+                df_timeline = pd.DataFrame(res['timeline'])
+                fig = px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", color_continuous_scale='Viridis', template="plotly_white", title="Variation Harmonique Temporelle")
+                fig.update_layout(height=350)
+                st.plotly_chart(fig, use_container_width=True)
 
-    df = pd.DataFrame(res["timeline"])
-    fig = px.scatter(df, x="Temps", y="Note", size="Confiance", color="Note", title="Analyse de stabilité harmonique (Timeline)", template="plotly_white")
-    st.plotly_chart(fig, use_container_width=True)
-
-    if not st.session_state.history or st.session_state.history[-1]["Fichier"] != file.name:
-        st.session_state.history.append({"Date": datetime.datetime.now().strftime("%H:%M"), "Fichier": file.name, "Key": get_camelot_pro(res['vote']), "Fiabilité": f"{conf}%"})
-
-if st.session_state.history:
-    with st.expander("🕒 Historique"):
-        st.table(pd.DataFrame(st.session_state.history))
+with tabs[1]:
+    if st.session_state.history:
+        df_hist = pd.DataFrame(st.session_state.history)
+        st.dataframe(df_hist, use_container_width=True)
+        if st.button("🗑️ Effacer l'historique"):
+            st.session_state.history = []
+            st.rerun()
+    else:
+        st.info("Aucune analyse dans l'historique.")

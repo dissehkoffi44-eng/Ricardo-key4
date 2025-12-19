@@ -142,7 +142,7 @@ def get_full_analysis(file_buffer):
     }
 
 # --- INTERFACE ---
-st.markdown("<h1 style='text-align: center; color: #1A1A1A;'>🎧 RICARDO_DJ228 | V4.5 PRO ULTRA PRECIS</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #1A1A1A;'>🎧 RICARDO_DJ228 | V4.7 PRO ULTRA PRECIS</h1>", unsafe_allow_html=True)
 tabs = st.tabs(["📁 ANALYSEUR INTELLIGENT", "🕒 HISTORIQUE"])
 
 with tabs[0]:

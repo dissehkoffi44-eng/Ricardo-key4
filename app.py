@@ -32,33 +32,58 @@ st.markdown("""
     .value-custom { font-size: 1.6em; font-weight: 800; color: #1A1A1A; }
     .value-secondary { font-size: 1.1em; font-weight: 600; color: #E67E22; margin-top: 5px; border-top: 1px dashed #DDD; padding-top: 5px; }
     .status-badge { font-size: 0.8em; padding: 2px 8px; border-radius: 10px; font-weight: bold; margin-top: 5px; display: inline-block; }
-    /* Style du témoin Sinus */
     .sine-witness { margin-top: 10px; border-top: 1px solid #EEE; padding-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- AJOUT : MOTEUR AUDIO JS POUR LES TÉMOINS ---
-def get_sine_witness(note_str, key_suffix=""):
-    note = note_str.split(' ')[0]
-    unique_id = f"playBtn_{note}_{key_suffix}"
+# --- CORRECTION : MOTEUR AUDIO JS (JOUE MAINTENANT L'ACCORD) ---
+def get_sine_witness(note_mode_str, key_suffix=""):
+    parts = note_mode_str.split(' ')
+    note = parts[0]
+    mode = parts[1].lower() if len(parts) > 1 else "major"
+    
+    unique_id = f"playBtn_{note}_{mode}_{key_suffix}".replace("#", "sharp")
+    
     return components.html(f"""
     <div style="display: flex; align-items: center; justify-content: center; gap: 10px; font-family: sans-serif;">
         <button id="{unique_id}" style="background: #6366F1; color: white; border: none; border-radius: 50%; width: 28px; height: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px;">▶</button>
-        <span style="font-size: 9px; font-weight: bold; color: #666;">{note}</span>
+        <span style="font-size: 9px; font-weight: bold; color: #666;">{note} {mode[:3].upper()}</span>
     </div>
     <script>
-    const freqs = {{'C':261.63,'C#':277.18,'D':293.66,'D#':311.13,'E':329.63,'F':349.23,'F#':369.99,'G':392.00,'G#':415.30,'A':440.00,'A#':466.16,'B':493.88}};
-    let audioCtx = null; let oscillator = null; let gainNode = null;
+    const notesFreq = {{'C':261.63,'C#':277.18,'D':293.66,'D#':311.13,'E':329.63,'F':349.23,'F#':369.99,'G':392.00,'G#':415.30,'A':440.00,'A#':466.16,'B':493.88}};
+    const semitones = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+    
+    let audioCtx = null; 
+    let oscillators = []; 
+    let gainNode = null;
+
     document.getElementById('{unique_id}').onclick = function() {{
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
         if (this.innerText === '▶') {{
-            oscillator = audioCtx.createOscillator(); gainNode = audioCtx.createGain();
-            oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(freqs['{note}'], audioCtx.currentTime);
-            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            oscillator.connect(gainNode); gainNode.connect(audioCtx.destination);
-            oscillator.start(); this.innerText = '◼'; this.style.background = '#E74C3C';
+            this.innerText = '◼'; this.style.background = '#E74C3C';
+            gainNode = audioCtx.createGain();
+            gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
+            gainNode.connect(audioCtx.destination);
+
+            const rootIdx = semitones.indexOf('{note}');
+            // Intervalles : Majeur (0, 4, 7) | Mineur (0, 3, 7)
+            const intervals = ('{mode}' === 'minor' || '{mode}' === 'dorian') ? [0, 3, 7] : [0, 4, 7];
+            
+            intervals.forEach(interval => {{
+                let osc = audioCtx.createOscillator();
+                osc.type = 'sine';
+                // Calcul de la fréquence pour les notes de l'accord
+                let freq = notesFreq['{note}'] * Math.pow(2, interval / 12);
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                osc.connect(gainNode);
+                osc.start();
+                oscillators.push(osc);
+            }});
         }} else {{
-            oscillator.stop(); this.innerText = '▶'; this.style.background = '#6366F1';
+            oscillators.forEach(o => o.stop());
+            oscillators = [];
+            this.innerText = '▶'; this.style.background = '#6366F1';
         }}
     }};
     </script>
@@ -76,7 +101,7 @@ def get_camelot_pro(key_mode_str):
         else: return BASE_CAMELOT_MAJOR.get(key, "??")
     except: return "??"
 
-# --- AJOUT : FONCTION DE TAGGING ---
+# --- FONCTION DE TAGGING ---
 def get_tagged_audio(file_buffer, key_val):
     if not MUTAGEN_AVAILABLE: return file_buffer
     try:
@@ -91,7 +116,7 @@ def get_tagged_audio(file_buffer, key_val):
         return output
     except: return file_buffer
 
-# --- MOTEUR ANALYSE ORIGINAL (STRICTEMENT INTACT) ---
+# --- MOTEUR ANALYSE ORIGINAL ---
 def check_drum_alignment(y, sr):
     flatness = np.mean(librosa.feature.spectral_flatness(y=y))
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
@@ -153,7 +178,6 @@ with tabs[0]:
                 res = get_full_analysis(file)
                 cam_final = get_camelot_pro(res['synthese'])
                 
-                # --- HISTORIQUE ---
                 entry = {"Date": datetime.now().strftime("%d/%m %H:%M"), "Fichier": file.name, "Note": res['synthese'], "Camelot": cam_final, "BPM": res['tempo']}
                 if not any(h['Fichier'] == file.name for h in st.session_state.history): st.session_state.history.insert(0, entry)
 
@@ -167,7 +191,6 @@ with tabs[0]:
                 with c2: 
                     st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE</div><div class="value-custom">{res["synthese"]}</div><div>{cam_final}</div></div>', unsafe_allow_html=True)
                     get_sine_witness(res["synthese"], "synth")
-                    # BOUTON TAGGING
                     tagged_audio = get_tagged_audio(file, cam_final)
                     st.download_button(label="💾 EXPORT TAGGED MP3", data=tagged_audio, file_name=f"[{cam_final}] {file.name}", mime="audio/mpeg")
                 
@@ -176,7 +199,6 @@ with tabs[0]:
                 best_n = df_s.loc[0, 'Note']
                 sec_n = df_s[df_s['Note'] != best_n].iloc[0]['Note'] if not df_s[df_s['Note'] != best_n].empty else best_n
                 
-                # AJOUT NOTATION CAMELOT DANS CONFIANCE
                 cam_best = get_camelot_pro(best_n)
                 cam_sec = get_camelot_pro(sec_n)
 
@@ -195,7 +217,6 @@ with tabs[1]:
     if st.session_state.history:
         df_hist = pd.DataFrame(st.session_state.history)
         st.dataframe(df_hist, use_container_width=True)
-        # BOUTON TÉLÉCHARGER CSV
         csv_data = df_hist.to_csv(index=False).encode('utf-8')
         st.download_button("📥 TÉLÉCHARGER HISTORIQUE (CSV)", csv_data, "historique_ricardo.csv", "text/csv")
     else: 

@@ -152,15 +152,15 @@ with tabs[0]:
                 res = get_full_analysis(file)
                 cam_final = get_camelot_pro(res['synthese'])
                 
-                # --- LOGIQUE TOP 2 CONFIANCE (JAUNE & ORANGE) ---
+                # --- LOGIQUE TOP 2 CONFIANCE ---
                 df_timeline = pd.DataFrame(res['timeline'])
                 df_sorted = df_timeline.sort_values(by="Confiance", ascending=False).reset_index()
                 
-                # Valeur Max (Jaune)
+                # Valeur Max (Jaune dans l'interface)
                 best_note = df_sorted.loc[0, 'Note']
                 best_cam = get_camelot_pro(best_note)
                 
-                # Valeur Secondaire (Orange - On cherche la 2ème note différente de la 1ère)
+                # Valeur Secondaire (Orange dans l'interface)
                 sub_df = df_sorted[df_sorted['Note'] != best_note]
                 if not sub_df.empty:
                     second_note = sub_df.iloc[0]['Note']
@@ -187,14 +187,14 @@ with tabs[0]:
                 with c1: st.markdown(f"""<div class="metric-container"><div class="label-custom">DOMINANTE</div><div class="value-custom">{res['vote']}</div><div style="color: #6366F1; font-weight: 800; font-size: 1.6em;">{get_camelot_pro(res['vote'])}</div></div>""", unsafe_allow_html=True)
                 with c2: st.markdown(f"""<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE FINALE</div><div class="value-custom">{res['synthese']}</div><div style="color: #6366F1; font-weight: 800; font-size: 1.6em;">{cam_final}</div></div>""", unsafe_allow_html=True)
                 
-                # CASE CONFIANCE DOUBLE (JAUNE + ORANGE)
+                # CASE CONFIANCE DOUBLE
                 with c3: st.markdown(f"""
                     <div class="metric-container" style="border-bottom: 4px solid #F1C40F;">
                         <div class="label-custom">TONALITÉS DE CONFIANCE</div>
-                        <div style="color: #F1C40F; font-size: 0.7em; font-weight: bold;">🥇 MAX (JAUNE)</div>
+                        <div style="color: #F1C40F; font-size: 0.7em; font-weight: bold;">🥇 MAX (Haut Graphique)</div>
                         <div class="value-custom" style="font-size: 1.3em;">{best_note} <span style="color:#F1C40F;">({best_cam})</span></div>
                         <div class="value-secondary">
-                            <span style="color: #E67E22; font-size: 0.7em; font-weight: bold;">🥈 SECONDAIRE (ORANGE)</span><br>
+                            <span style="color: #E67E22; font-size: 0.7em; font-weight: bold;">🥈 SECONDAIRE (Orange)</span><br>
                             {second_note} <b>({second_cam})</b><br>
                             <span style="font-size: 0.7em; color: #888;">Stabilité: {second_conf}%</span>
                         </div>
@@ -202,7 +202,8 @@ with tabs[0]:
                 
                 with c4: st.markdown(f"""<div class="metric-container"><div class="label-custom">BPM & ÉNERGIE</div><div class="value-custom">{res['tempo']} BPM</div><div style="color: #6366F1; font-weight: 800; font-size: 1.2em;">E: {res['energy']}/10</div></div>""", unsafe_allow_html=True)
 
-                st.plotly_chart(px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white", color_continuous_scale='YlOrRd').update_layout(height=300), use_container_width=True)
+                # COULEURS ORIGINALES RÉTABLIES (color_continuous_scale retiré)
+                st.plotly_chart(px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white").update_layout(height=300), use_container_width=True)
 
 with tabs[1]:
     if st.session_state.history:

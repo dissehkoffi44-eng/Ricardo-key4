@@ -8,7 +8,7 @@ from datetime import datetime
 import io
 import streamlit.components.v1 as components
 
-# --- NOUVEL IMPORT POUR LES TAGS ---
+# --- IMPORT POUR LES TAGS MP3 ---
 try:
     from mutagen.id3 import ID3, TKEY
     from mutagen.mp3 import MP3
@@ -17,12 +17,12 @@ except ImportError:
     MUTAGEN_AVAILABLE = False
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Ricardo_DJ228 | Precision V4.7 Pro Hybrid", page_icon="🎧", layout="wide")
+st.set_page_config(page_title="Ricardo_DJ228 | Precision V4.7 Double Témoin", page_icon="🎧", layout="wide")
 
 if 'history' not in st.session_state:
     st.session_state.history = []
 
-# --- DESIGN CSS ORIGINAL ---
+# --- DESIGN CSS ---
 st.markdown("""
     <style>
     .stApp { background-color: #F8F9FA; color: #212529; }
@@ -30,53 +30,38 @@ st.markdown("""
     .metric-container:hover { transform: translateY(-5px); border-color: #6366F1; }
     .label-custom { color: #666; font-size: 0.9em; font-weight: bold; margin-bottom: 5px; }
     .value-custom { font-size: 1.6em; font-weight: 800; color: #1A1A1A; }
-    .value-secondary { font-size: 1.1em; font-weight: 600; color: #E67E22; margin-top: 5px; border-top: 1px dashed #DDD; padding-top: 5px; }
-    .status-badge { font-size: 0.8em; padding: 2px 8px; border-radius: 10px; font-weight: bold; margin-top: 5px; display: inline-block; }
-    /* Style du témoin Sinus */
-    .sine-witness { margin-top: 10px; border-top: 1px solid #EEE; padding-top: 10px; }
+    .value-secondary { font-size: 0.9em; font-weight: 600; color: #E67E22; margin-top: 2px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- AJOUT : MOTEUR AUDIO JS POUR LES TÉMOINS (SANS TOUCHER AU RESTE) ---
+# --- MOTEUR AUDIO JS ---
 def get_sine_witness(note_str, key_suffix=""):
     note = note_str.split(' ')[0]
-    # Ajout d'un suffixe pour éviter les conflits d'ID HTML quand il y a 2 témoins dans la même colonne
     unique_id = f"playBtn_{note}_{key_suffix}"
     return components.html(f"""
-    <div style="display: flex; align-items: center; justify-content: center; gap: 10px; font-family: sans-serif;">
-        <button id="{unique_id}" style="background: #6366F1; color: white; border: none; border-radius: 50%; width: 28px; height: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px;">▶</button>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 8px; font-family: sans-serif;">
+        <button id="{unique_id}" style="background: #6366F1; color: white; border: none; border-radius: 50%; width: 26px; height: 26px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 10px;">▶</button>
         <span style="font-size: 9px; font-weight: bold; color: #666;">{note}</span>
     </div>
     <script>
     const freqs = {{'C':261.63,'C#':277.18,'D':293.66,'D#':311.13,'E':329.63,'F':349.23,'F#':369.99,'G':392.00,'G#':415.30,'A':440.00,'A#':466.16,'B':493.88}};
-    let audioCtx = null;
-    let oscillator = null;
-    let gainNode = null;
-
+    let audioCtx = null; let oscillator = null; let gainNode = null;
     document.getElementById('{unique_id}').onclick = function() {{
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        
         if (this.innerText === '▶') {{
-            oscillator = audioCtx.createOscillator();
-            gainNode = audioCtx.createGain();
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(freqs['{note}'], audioCtx.currentTime);
+            oscillator = audioCtx.createOscillator(); gainNode = audioCtx.createGain();
+            oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(freqs['{note}'], audioCtx.currentTime);
             gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.start();
-            this.innerText = '◼';
-            this.style.background = '#E74C3C';
+            oscillator.connect(gainNode); gainNode.connect(audioCtx.destination);
+            oscillator.start(); this.innerText = '◼'; this.style.background = '#E74C3C';
         }} else {{
-            oscillator.stop();
-            this.innerText = '▶';
-            this.style.background = '#6366F1';
+            oscillator.stop(); this.innerText = '▶'; this.style.background = '#6366F1';
         }}
     }};
     </script>
-    """, height=40)
+    """, height=35)
 
-# --- MAPPING CAMELOT (F# MINOR = 11A) ---
+# --- MAPPING CAMELOT ---
 BASE_CAMELOT_MINOR = {'Ab':'1A','G#':'1A','Eb':'2A','D#':'2A','Bb':'3A','A#':'3A','F':'4A','C':'5A','G':'6A','D':'7A','A':'8A','E':'9A','B':'10A','F#':'11A','Gb':'11A','Db':'12A','C#':'12A'}
 BASE_CAMELOT_MAJOR = {'B':'1B','F#':'2B','Gb':'2B','Db':'3B','C#':'3B','Ab':'4B','G#':'4B','Eb':'5B','D#':'5B','Bb':'6B','A#':'6B','F':'7B','C':'8B','G':'9B','D':'10B','A':'11B','E':'12B'}
 
@@ -88,31 +73,33 @@ def get_camelot_pro(key_mode_str):
         else: return BASE_CAMELOT_MAJOR.get(key, "??")
     except: return "??"
 
-def tag_audio_key_only(file_buffer, key_val):
-    if not MUTAGEN_AVAILABLE: return None
+# --- FONCTION EXPORT TAGS ---
+def get_tagged_file(file_buffer, camelot_key):
+    if not MUTAGEN_AVAILABLE: return file_buffer
     try:
-        new_file = io.BytesIO(file_buffer.getvalue())
-        audio = MP3(new_file)
+        file_buffer.seek(0)
+        audio_data = io.BytesIO(file_buffer.read())
+        audio = MP3(audio_data)
         if audio.tags is None: audio.add_tags()
-        audio.tags.add(TKEY(encoding=3, text=key_val))
-        audio.save(new_file)
-        new_file.seek(0)
-        return new_file
-    except: return None
+        audio.tags.add(TKEY(encoding=3, text=camelot_key))
+        output = io.BytesIO()
+        audio.save(output)
+        output.seek(0)
+        return output
+    except: return file_buffer
 
-# --- MOTEUR ANALYSE ORIGINAL (STRICTEMENT INTACT) ---
+# --- MOTEUR ANALYSE ---
 def check_drum_alignment(y, sr):
     flatness = np.mean(librosa.feature.spectral_flatness(y=y))
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-    chroma_max_mean = np.mean(np.max(chroma, axis=0))
-    return flatness < 0.045 or chroma_max_mean > 0.75
+    return flatness < 0.045 or np.mean(np.max(chroma, axis=0)) > 0.75
 
 def analyze_segment(y, sr):
     tuning = librosa.estimate_tuning(y=y, sr=sr)
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr, tuning=tuning)
     chroma_avg = np.mean(chroma, axis=1)
     NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    PROFILES = {"major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17], "dorian": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 2.69, 3.98, 3.34, 3.17]}
+    PROFILES = {"major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]}
     best_score, res_key = -1, ""
     for mode, profile in PROFILES.items():
         for i in range(12):
@@ -120,7 +107,7 @@ def analyze_segment(y, sr):
             if score > best_score: best_score, res_key = score, f"{NOTES[i]} {mode}"
     return res_key, best_score, chroma_avg
 
-@st.cache_data(show_spinner="Analyse intelligente...")
+@st.cache_data(show_spinner="Analyse DJ Pro...")
 def get_full_analysis(file_buffer):
     y, sr = librosa.load(file_buffer)
     is_aligned = check_drum_alignment(y, sr)
@@ -134,25 +121,13 @@ def get_full_analysis(file_buffer):
         all_chromas.append(chroma_vec)
         timeline_data.append({"Temps": start_t, "Note": key_seg, "Confiance": round(score_seg * 100, 1)})
     
-    dominante_vote = Counter(votes).most_common(1)[0][0]
-    avg_chroma_global = np.mean(all_chromas, axis=0)
-    NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    PROFILES_SYNTH = {"major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]}
-    best_synth_score, tonique_synth = -1, ""
-    for mode, profile in PROFILES_SYNTH.items():
-        for i in range(12):
-            score = np.corrcoef(avg_chroma_global, np.roll(profile, i))[0, 1]
-            if score > best_synth_score: best_synth_score, tonique_synth = score, f"{NOTES[i]} {mode}"
-    
-    stability = Counter(votes).most_common(1)[0][1] / len(votes)
-    final_conf = int(max(96, min(99, ((stability*0.5)+(best_synth_score*0.5))*100 + 15))) if dominante_vote == tonique_synth else 89
+    dom = Counter(votes).most_common(1)[0][0]
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-    energy = int(np.clip(np.mean(librosa.feature.rms(y=y))*35 + (float(tempo)/160), 1, 10))
-    return {"vote": dominante_vote, "synthese": tonique_synth, "confidence": final_conf, "tempo": int(float(tempo)), "energy": energy, "timeline": timeline_data, "mode_label": "DIRECT" if is_aligned else "SÉPARÉ", "mode_color": "#E8F5E9" if is_aligned else "#E3F2FD"}
+    return {"vote": dom, "timeline": timeline_data, "tempo": int(float(tempo)), "energy": int(np.mean(librosa.feature.rms(y=y))*100)}
 
 # --- INTERFACE ---
-st.markdown("<h1 style='text-align: center;'>🎧 RICARDO_DJ228 | V4.7 DOUBLE TÉMOIN</h1>", unsafe_allow_html=True)
-tabs = st.tabs(["📁 ANALYSEUR", "🕒 HISTORIQUE"])
+st.markdown("<h1 style='text-align: center;'>🎧 RICARDO_DJ228 | V4.7 ULTRA TAGGER</h1>", unsafe_allow_html=True)
+tabs = st.tabs(["📁 ANALYSEUR PRO", "🕒 HISTORIQUE & EXPORT"])
 
 with tabs[0]:
     files = st.file_uploader("Importer des tracks", type=['mp3', 'wav', 'flac'], accept_multiple_files=True)
@@ -160,41 +135,52 @@ with tabs[0]:
         for file in files:
             with st.expander(f"🎵 {file.name}", expanded=True):
                 res = get_full_analysis(file)
-                cam_final = get_camelot_pro(res['synthese'])
-                
-                # --- HISTORIQUE ---
-                entry = {"Date": datetime.now().strftime("%d/%m %H:%M"), "Fichier": file.name, "Note": res['synthese'], "Camelot": cam_final, "BPM": res['tempo']}
-                if not any(h['Fichier'] == file.name for h in st.session_state.history): st.session_state.history.insert(0, entry)
-
-                st.audio(file) # Son original
-
-                c1, c2, c3, c4 = st.columns(4)
-                with c1: 
-                    st.markdown(f'<div class="metric-container"><div class="label-custom">DOMINANTE</div><div class="value-custom">{res["vote"]}</div><div>{get_camelot_pro(res["vote"])}</div></div>', unsafe_allow_html=True)
-                    get_sine_witness(res["vote"], "dom")
-                
-                with c2: 
-                    st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE</div><div class="value-custom">{res["synthese"]}</div><div>{cam_final}</div></div>', unsafe_allow_html=True)
-                    get_sine_witness(res["synthese"], "synth")
-                
-                df_timeline = pd.DataFrame(res['timeline'])
-                df_s = df_timeline.sort_values(by="Confiance", ascending=False).reset_index()
+                df_t = pd.DataFrame(res['timeline'])
+                df_s = df_t.sort_values(by="Confiance", ascending=False).reset_index()
                 best_n = df_s.loc[0, 'Note']
                 sec_n = df_s[df_s['Note'] != best_n].iloc[0]['Note'] if not df_s[df_s['Note'] != best_n].empty else best_n
                 
-                # --- CASE CONFIANCE : DEUX TÉMOINS ---
-                with c3: 
-                    st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #F1C40F;"><div class="label-custom">TOP CONFIANCE</div><div style="font-size:0.8em;">🥇 {best_n}</div><div style="font-size:0.8em;">🥈 {sec_n}</div></div>', unsafe_allow_html=True)
-                    # Appel des deux témoins pour chaque note
-                    col_t1, col_t2 = st.columns(2)
-                    with col_t1: get_sine_witness(best_n, "best")
-                    with col_t2: get_sine_witness(sec_n, "sec")
+                cam_best = get_camelot_pro(best_n)
+                cam_sec = get_camelot_pro(sec_n)
                 
-                with c4: 
-                    st.markdown(f'<div class="metric-container"><div class="label-custom">BPM</div><div class="value-custom">{res["tempo"]}</div><div>E: {res["energy"]}</div></div>', unsafe_allow_html=True)
+                # --- HISTORIQUE ---
+                if not any(h['Fichier'] == file.name for h in st.session_state.history):
+                    st.session_state.history.insert(0, {"Date": datetime.now().strftime("%H:%M"), "Fichier": file.name, "Note": best_n, "Camelot": cam_best, "BPM": res['tempo']})
 
-                st.plotly_chart(px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white"), use_container_width=True)
+                st.audio(file)
+
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.markdown(f'<div class="metric-container"><div class="label-custom">DOMINANTE</div><div class="value-custom">{res["vote"]}</div><div>{get_camelot_pro(res["vote"])}</div></div>', unsafe_allow_html=True)
+                    get_sine_witness(res["vote"], "dom")
+                with c2:
+                    st.markdown(f'<div class="metric-container"><div class="label-custom">BPM</div><div class="value-custom">{res["tempo"]}</div></div>', unsafe_allow_html=True)
+                    # Bouton Export Tag
+                    tagged_audio = get_tagged_file(file, cam_best)
+                    st.download_button(label="💾 TAG & DOWNLOAD", data=tagged_audio, file_name=f"[{cam_best}] {file.name}", mime="audio/mpeg")
+                
+                with c3:
+                    # AFFICHAGE CAMELOT DANS CONFIANCE
+                    st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #F1C40F;"><div class="label-custom">TOP CONFIANCE</div><div style="font-size:0.8em;">🥇 {best_n} <b>({cam_best})</b></div><div style="font-size:0.8em;">🥈 {sec_n} <b>({cam_sec})</b></div></div>', unsafe_allow_html=True)
+                    ct1, ct2 = st.columns(2)
+                    with ct1: get_sine_witness(best_n, "b")
+                    with ct2: get_sine_witness(sec_n, "s")
+                
+                with c4:
+                    st.markdown(f'<div class="metric-container"><div class="label-custom">ENERGY</div><div class="value-custom">{res["energy"]}</div></div>', unsafe_allow_html=True)
+
+                st.plotly_chart(px.scatter(df_t, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white"), use_container_width=True)
 
 with tabs[1]:
-    if st.session_state.history: st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
-    else: st.info("Historique vide.")
+    if st.session_state.history:
+        df_hist = pd.DataFrame(st.session_state.history)
+        st.dataframe(df_hist, use_container_width=True)
+        
+        c_down, c_clear = st.columns(2)
+        with c_down:
+            csv = df_hist.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 TÉLÉCHARGER HISTORIQUE (CSV)", csv, "historique_ricardo_dj.csv", "text/csv")
+        with c_clear:
+            if st.button("🗑 EFFACER TOUT"):
+                st.session_state.history = []
+                st.rerun()

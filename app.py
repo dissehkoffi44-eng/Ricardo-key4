@@ -29,8 +29,7 @@ st.markdown("""
     .metric-container:hover { transform: translateY(-5px); border-color: #6366F1; }
     .label-custom { color: #666; font-size: 0.9em; font-weight: bold; margin-bottom: 5px; }
     .value-custom { font-size: 1.6em; font-weight: 800; color: #1A1A1A; }
-    .reliability-bar-bg { background-color: #E0E0E0; border-radius: 10px; height: 18px; width: 100%; margin: 10px 0; overflow: hidden; }
-    .reliability-fill { height: 100%; transition: width 0.8s ease-in-out; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8em; font-weight: bold; }
+    .value-secondary { font-size: 1.1em; font-weight: 600; color: #E67E22; margin-top: 5px; border-top: 1px dashed #DDD; padding-top: 5px; }
     .status-badge { font-size: 0.8em; padding: 2px 8px; border-radius: 10px; font-weight: bold; margin-top: 5px; display: inline-block; }
     </style>
     """, unsafe_allow_html=True)
@@ -153,12 +152,22 @@ with tabs[0]:
                 res = get_full_analysis(file)
                 cam_final = get_camelot_pro(res['synthese'])
                 
-                # --- LOGIQUE NOUVELLE CASE : TONALITÉ DE CONFIANCE MAX ---
+                # --- LOGIQUE TOP 2 CONFIANCE (JAUNE & ORANGE) ---
                 df_timeline = pd.DataFrame(res['timeline'])
-                best_idx = df_timeline['Confiance'].idxmax()
-                best_seg_note = df_timeline.loc[best_idx, 'Note']
-                best_seg_conf = df_timeline.loc[best_idx, 'Confiance']
-                best_seg_camelot = get_camelot_pro(best_seg_note)
+                df_sorted = df_timeline.sort_values(by="Confiance", ascending=False).reset_index()
+                
+                # Valeur Max (Jaune)
+                best_note = df_sorted.loc[0, 'Note']
+                best_cam = get_camelot_pro(best_note)
+                
+                # Valeur Secondaire (Orange - On cherche la 2ème note différente de la 1ère)
+                sub_df = df_sorted[df_sorted['Note'] != best_note]
+                if not sub_df.empty:
+                    second_note = sub_df.iloc[0]['Note']
+                    second_conf = sub_df.iloc[0]['Confiance']
+                else:
+                    second_note, second_conf = best_note, df_sorted.loc[0, 'Confiance']
+                second_cam = get_camelot_pro(second_note)
 
                 # Historique
                 entry = {"Date": datetime.now().strftime("%d/%m %H:%M"), "Fichier": file.name, "Note": res['synthese'], "Camelot": cam_final, "BPM": res['tempo'], "Energie": res['energy']}
@@ -168,34 +177,32 @@ with tabs[0]:
                 # UI
                 st.markdown(f"""<div class="status-badge" style="background-color: {res['mode_color']}; color: #333; border: 1px solid #CCC;">Moteur : {res['mode_label']}</div>""", unsafe_allow_html=True)
                 
-                # NOUVEAU : BOUTON TAGGING TONALITÉ SEULE
                 if file.name.lower().endswith('.mp3'):
                     tagged_file = tag_audio_key_only(file, cam_final)
                     if tagged_file:
-                        st.download_button(
-                            label=f"💾 Télécharger avec Tag Clé ({cam_final})",
-                            data=tagged_file,
-                            file_name=f"[{cam_final}] {file.name}",
-                            mime="audio/mpeg"
-                        )
+                        st.download_button(label=f"💾 Télécharger avec Tag Clé ({cam_final})", data=tagged_file, file_name=f"[{cam_final}] {file.name}", mime="audio/mpeg")
 
-                # Affichage des métriques (Passage à 4 colonnes pour inclure la Tonalité de Confiance)
+                # Affichage des métriques (4 colonnes)
                 c1, c2, c3, c4 = st.columns(4)
                 with c1: st.markdown(f"""<div class="metric-container"><div class="label-custom">DOMINANTE</div><div class="value-custom">{res['vote']}</div><div style="color: #6366F1; font-weight: 800; font-size: 1.6em;">{get_camelot_pro(res['vote'])}</div></div>""", unsafe_allow_html=True)
                 with c2: st.markdown(f"""<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE FINALE</div><div class="value-custom">{res['synthese']}</div><div style="color: #6366F1; font-weight: 800; font-size: 1.6em;">{cam_final}</div></div>""", unsafe_allow_html=True)
                 
-                # LA NOUVELLE CASE DEMANDÉE
+                # CASE CONFIANCE DOUBLE (JAUNE + ORANGE)
                 with c3: st.markdown(f"""
-                    <div class="metric-container" style="border-bottom: 4px solid #10B981;">
-                        <div class="label-custom">TONALITÉ DE CONFIANCE</div>
-                        <div class="value-custom">{best_seg_note}</div>
-                        <div style="color: #10B981; font-weight: 800; font-size: 1.6em;">{best_seg_camelot}</div>
-                        <div style="font-size: 0.7em; color: #888;">Confiance Max: {best_seg_conf}%</div>
+                    <div class="metric-container" style="border-bottom: 4px solid #F1C40F;">
+                        <div class="label-custom">TONALITÉS DE CONFIANCE</div>
+                        <div style="color: #F1C40F; font-size: 0.7em; font-weight: bold;">🥇 MAX (JAUNE)</div>
+                        <div class="value-custom" style="font-size: 1.3em;">{best_note} <span style="color:#F1C40F;">({best_cam})</span></div>
+                        <div class="value-secondary">
+                            <span style="color: #E67E22; font-size: 0.7em; font-weight: bold;">🥈 SECONDAIRE (ORANGE)</span><br>
+                            {second_note} <b>({second_cam})</b><br>
+                            <span style="font-size: 0.7em; color: #888;">Stabilité: {second_conf}%</span>
+                        </div>
                     </div>""", unsafe_allow_html=True)
                 
                 with c4: st.markdown(f"""<div class="metric-container"><div class="label-custom">BPM & ÉNERGIE</div><div class="value-custom">{res['tempo']} BPM</div><div style="color: #6366F1; font-weight: 800; font-size: 1.2em;">E: {res['energy']}/10</div></div>""", unsafe_allow_html=True)
 
-                st.plotly_chart(px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white").update_layout(height=300), use_container_width=True)
+                st.plotly_chart(px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white", color_continuous_scale='YlOrRd').update_layout(height=300), use_container_width=True)
 
 with tabs[1]:
     if st.session_state.history:

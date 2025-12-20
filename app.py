@@ -38,13 +38,14 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- AJOUT : MOTEUR AUDIO JS POUR LES TÉMOINS (SANS TOUCHER AU RESTE) ---
-def get_sine_witness(note_str):
+def get_sine_witness(note_str, key_suffix=""):
     note = note_str.split(' ')[0]
-    # On utilise un composant HTML pour créer un petit bouton de contrôle indépendant
+    # Ajout d'un suffixe pour éviter les conflits d'ID HTML quand il y a 2 témoins dans la même colonne
+    unique_id = f"playBtn_{note}_{key_suffix}"
     return components.html(f"""
     <div style="display: flex; align-items: center; justify-content: center; gap: 10px; font-family: sans-serif;">
-        <button id="playBtn" style="background: #6366F1; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center;">▶</button>
-        <span style="font-size: 10px; font-weight: bold; color: #666;">TÉMOIN {note}</span>
+        <button id="{unique_id}" style="background: #6366F1; color: white; border: none; border-radius: 50%; width: 28px; height: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px;">▶</button>
+        <span style="font-size: 9px; font-weight: bold; color: #666;">{note}</span>
     </div>
     <script>
     const freqs = {{'C':261.63,'C#':277.18,'D':293.66,'D#':311.13,'E':329.63,'F':349.23,'F#':369.99,'G':392.00,'G#':415.30,'A':440.00,'A#':466.16,'B':493.88}};
@@ -52,7 +53,7 @@ def get_sine_witness(note_str):
     let oscillator = null;
     let gainNode = null;
 
-    document.getElementById('playBtn').onclick = function() {{
+    document.getElementById('{unique_id}').onclick = function() {{
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
         if (this.innerText === '▶') {{
@@ -73,7 +74,7 @@ def get_sine_witness(note_str):
         }}
     }};
     </script>
-    """, height=50)
+    """, height=40)
 
 # --- MAPPING CAMELOT (F# MINOR = 11A) ---
 BASE_CAMELOT_MINOR = {'Ab':'1A','G#':'1A','Eb':'2A','D#':'2A','Bb':'3A','A#':'3A','F':'4A','C':'5A','G':'6A','D':'7A','A':'8A','E':'9A','B':'10A','F#':'11A','Gb':'11A','Db':'12A','C#':'12A'}
@@ -150,7 +151,7 @@ def get_full_analysis(file_buffer):
     return {"vote": dominante_vote, "synthese": tonique_synth, "confidence": final_conf, "tempo": int(float(tempo)), "energy": energy, "timeline": timeline_data, "mode_label": "DIRECT" if is_aligned else "SÉPARÉ", "mode_color": "#E8F5E9" if is_aligned else "#E3F2FD"}
 
 # --- INTERFACE ---
-st.markdown("<h1 style='text-align: center;'>🎧 RICARDO_DJ228 | V4.7 TÉMOINS SINUS</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>🎧 RICARDO_DJ228 | V4.7 DOUBLE TÉMOIN</h1>", unsafe_allow_html=True)
 tabs = st.tabs(["📁 ANALYSEUR", "🕒 HISTORIQUE"])
 
 with tabs[0]:
@@ -170,20 +171,24 @@ with tabs[0]:
                 c1, c2, c3, c4 = st.columns(4)
                 with c1: 
                     st.markdown(f'<div class="metric-container"><div class="label-custom">DOMINANTE</div><div class="value-custom">{res["vote"]}</div><div>{get_camelot_pro(res["vote"])}</div></div>', unsafe_allow_html=True)
-                    get_sine_witness(res["vote"])
+                    get_sine_witness(res["vote"], "dom")
                 
                 with c2: 
                     st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE</div><div class="value-custom">{res["synthese"]}</div><div>{cam_final}</div></div>', unsafe_allow_html=True)
-                    get_sine_witness(res["synthese"])
+                    get_sine_witness(res["synthese"], "synth")
                 
                 df_timeline = pd.DataFrame(res['timeline'])
                 df_s = df_timeline.sort_values(by="Confiance", ascending=False).reset_index()
                 best_n = df_s.loc[0, 'Note']
                 sec_n = df_s[df_s['Note'] != best_n].iloc[0]['Note'] if not df_s[df_s['Note'] != best_n].empty else best_n
                 
+                # --- CASE CONFIANCE : DEUX TÉMOINS ---
                 with c3: 
                     st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #F1C40F;"><div class="label-custom">TOP CONFIANCE</div><div style="font-size:0.8em;">🥇 {best_n}</div><div style="font-size:0.8em;">🥈 {sec_n}</div></div>', unsafe_allow_html=True)
-                    get_sine_witness(best_n)
+                    # Appel des deux témoins pour chaque note
+                    col_t1, col_t2 = st.columns(2)
+                    with col_t1: get_sine_witness(best_n, "best")
+                    with col_t2: get_sine_witness(sec_n, "sec")
                 
                 with c4: 
                     st.markdown(f'<div class="metric-container"><div class="label-custom">BPM</div><div class="value-custom">{res["tempo"]}</div><div>E: {res["energy"]}</div></div>', unsafe_allow_html=True)

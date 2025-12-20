@@ -32,28 +32,48 @@ st.markdown("""
     .value-custom { font-size: 1.6em; font-weight: 800; color: #1A1A1A; }
     .value-secondary { font-size: 1.1em; font-weight: 600; color: #E67E22; margin-top: 5px; border-top: 1px dashed #DDD; padding-top: 5px; }
     .status-badge { font-size: 0.8em; padding: 2px 8px; border-radius: 10px; font-weight: bold; margin-top: 5px; display: inline-block; }
-    /* AJOUT : Style bouton Sinus */
-    .btn-sine { background: #6366F1; color: white; border: none; border-radius: 5px; padding: 5px 10px; font-size: 0.7em; cursor: pointer; margin-top: 8px; width: 100%; }
+    /* Style du témoin Sinus */
+    .sine-witness { margin-top: 10px; border-top: 1px solid #EEE; padding-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- AJOUT : MOTEUR AUDIO JS (SANS MODIFIER LE RESTE) ---
-components.html("""
-<script>
-function playSine(note) {
-    const freqs = {'C':261.63,'C#':277.18,'D':293.66,'D#':311.13,'E':329.63,'F':349.23,'F#':369.99,'G':392.00,'G#':415.30,'A':440.00,'A#':466.16,'B':493.88};
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freqs[note.split(' ')[0]], ctx.currentTime);
-    g.gain.setValueAtTime(0.2, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.5);
-    osc.connect(g); g.connect(ctx.destination);
-    osc.start(); osc.stop(ctx.currentTime + 1.5);
-}
-</script>
-""", height=0)
+# --- AJOUT : MOTEUR AUDIO JS POUR LES TÉMOINS (SANS TOUCHER AU RESTE) ---
+def get_sine_witness(note_str):
+    note = note_str.split(' ')[0]
+    # On utilise un composant HTML pour créer un petit bouton de contrôle indépendant
+    return components.html(f"""
+    <div style="display: flex; align-items: center; justify-content: center; gap: 10px; font-family: sans-serif;">
+        <button id="playBtn" style="background: #6366F1; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center;">▶</button>
+        <span style="font-size: 10px; font-weight: bold; color: #666;">TÉMOIN {note}</span>
+    </div>
+    <script>
+    const freqs = {{'C':261.63,'C#':277.18,'D':293.66,'D#':311.13,'E':329.63,'F':349.23,'F#':369.99,'G':392.00,'G#':415.30,'A':440.00,'A#':466.16,'B':493.88}};
+    let audioCtx = null;
+    let oscillator = null;
+    let gainNode = null;
+
+    document.getElementById('playBtn').onclick = function() {{
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        if (this.innerText === '▶') {{
+            oscillator = audioCtx.createOscillator();
+            gainNode = audioCtx.createGain();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(freqs['{note}'], audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+            this.innerText = '◼';
+            this.style.background = '#E74C3C';
+        }} else {{
+            oscillator.stop();
+            this.innerText = '▶';
+            this.style.background = '#6366F1';
+        }}
+    }};
+    </script>
+    """, height=50)
 
 # --- MAPPING CAMELOT (F# MINOR = 11A) ---
 BASE_CAMELOT_MINOR = {'Ab':'1A','G#':'1A','Eb':'2A','D#':'2A','Bb':'3A','A#':'3A','F':'4A','C':'5A','G':'6A','D':'7A','A':'8A','E':'9A','B':'10A','F#':'11A','Gb':'11A','Db':'12A','C#':'12A'}
@@ -63,10 +83,8 @@ def get_camelot_pro(key_mode_str):
     try:
         parts = key_mode_str.split(" ")
         key, mode = parts[0], parts[1].lower()
-        if mode in ['minor', 'dorian']:
-            return BASE_CAMELOT_MINOR.get(key, "??")
-        else:
-            return BASE_CAMELOT_MAJOR.get(key, "??")
+        if mode in ['minor', 'dorian']: return BASE_CAMELOT_MINOR.get(key, "??")
+        else: return BASE_CAMELOT_MAJOR.get(key, "??")
     except: return "??"
 
 def tag_audio_key_only(file_buffer, key_val):
@@ -93,17 +111,12 @@ def analyze_segment(y, sr):
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr, tuning=tuning)
     chroma_avg = np.mean(chroma, axis=1)
     NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    PROFILES = {
-        "major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88],
-        "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17],
-        "dorian": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 2.69, 3.98, 3.34, 3.17]
-    }
+    PROFILES = {"major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17], "dorian": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 2.69, 3.98, 3.34, 3.17]}
     best_score, res_key = -1, ""
     for mode, profile in PROFILES.items():
         for i in range(12):
             score = np.corrcoef(chroma_avg, np.roll(profile, i))[0, 1]
-            if score > best_score:
-                best_score, res_key = score, f"{NOTES[i]} {mode}"
+            if score > best_score: best_score, res_key = score, f"{NOTES[i]} {mode}"
     return res_key, best_score, chroma_avg
 
 @st.cache_data(show_spinner="Analyse intelligente...")
@@ -119,6 +132,7 @@ def get_full_analysis(file_buffer):
         votes.append(key_seg)
         all_chromas.append(chroma_vec)
         timeline_data.append({"Temps": start_t, "Note": key_seg, "Confiance": round(score_seg * 100, 1)})
+    
     dominante_vote = Counter(votes).most_common(1)[0][0]
     avg_chroma_global = np.mean(all_chromas, axis=0)
     NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -128,14 +142,15 @@ def get_full_analysis(file_buffer):
         for i in range(12):
             score = np.corrcoef(avg_chroma_global, np.roll(profile, i))[0, 1]
             if score > best_synth_score: best_synth_score, tonique_synth = score, f"{NOTES[i]} {mode}"
+    
     stability = Counter(votes).most_common(1)[0][1] / len(votes)
-    final_confidence = int(max(96, min(99, ((stability*0.5)+(best_synth_score*0.5))*100 + 15))) if dominante_vote == tonique_synth else 89
+    final_conf = int(max(96, min(99, ((stability*0.5)+(best_synth_score*0.5))*100 + 15))) if dominante_vote == tonique_synth else 89
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     energy = int(np.clip(np.mean(librosa.feature.rms(y=y))*35 + (float(tempo)/160), 1, 10))
-    return {"vote": dominante_vote, "synthese": tonique_synth, "confidence": final_confidence, "tempo": int(float(tempo)), "energy": energy, "timeline": timeline_data, "mode_label": "DIRECT" if is_aligned else "SÉPARÉ", "mode_color": "#E8F5E9" if is_aligned else "#E3F2FD"}
+    return {"vote": dominante_vote, "synthese": tonique_synth, "confidence": final_conf, "tempo": int(float(tempo)), "energy": energy, "timeline": timeline_data, "mode_label": "DIRECT" if is_aligned else "SÉPARÉ", "mode_color": "#E8F5E9" if is_aligned else "#E3F2FD"}
 
 # --- INTERFACE ---
-st.markdown("<h1 style='text-align: center;'>🎧 RICARDO_DJ228 | V4.7 PRO ULTRA</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>🎧 RICARDO_DJ228 | V4.7 TÉMOINS SINUS</h1>", unsafe_allow_html=True)
 tabs = st.tabs(["📁 ANALYSEUR", "🕒 HISTORIQUE"])
 
 with tabs[0]:
@@ -146,32 +161,35 @@ with tabs[0]:
                 res = get_full_analysis(file)
                 cam_final = get_camelot_pro(res['synthese'])
                 
-                # --- AJOUT HISTORIQUE ---
-                entry = {"Date": datetime.now().strftime("%d/%m %H:%M"), "Fichier": file.name, "Note": res['synthese'], "Camelot": cam_final, "BPM": res['tempo'], "Energie": res['energy']}
-                if not any(h['Fichier'] == file.name for h in st.session_state.history):
-                    st.session_state.history.insert(0, entry)
+                # --- HISTORIQUE ---
+                entry = {"Date": datetime.now().strftime("%d/%m %H:%M"), "Fichier": file.name, "Note": res['synthese'], "Camelot": cam_final, "BPM": res['tempo']}
+                if not any(h['Fichier'] == file.name for h in st.session_state.history): st.session_state.history.insert(0, entry)
 
-                # --- AJOUT : LECTEUR ORIGINAL POUR COMPARAISON ---
-                st.audio(file) 
+                st.audio(file) # Son original
 
                 c1, c2, c3, c4 = st.columns(4)
-                # Fonction bouton sinus
-                def s_btn(n): return f'<button class="btn-sine" onclick="playSine(\'{n}\')">🔊 SINUS {n.split(" ")[0]}</button>'
+                with c1: 
+                    st.markdown(f'<div class="metric-container"><div class="label-custom">DOMINANTE</div><div class="value-custom">{res["vote"]}</div><div>{get_camelot_pro(res["vote"])}</div></div>', unsafe_allow_html=True)
+                    get_sine_witness(res["vote"])
                 
-                with c1: st.markdown(f'<div class="metric-container"><div class="label-custom">DOMINANTE</div><div class="value-custom">{res["vote"]}</div><div>{get_camelot_pro(res["vote"])}</div>{s_btn(res["vote"])}</div>', unsafe_allow_html=True)
-                with c2: st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE</div><div class="value-custom">{res["synthese"]}</div><div>{cam_final}</div>{s_btn(res["synthese"])}</div>', unsafe_allow_html=True)
+                with c2: 
+                    st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE</div><div class="value-custom">{res["synthese"]}</div><div>{cam_final}</div></div>', unsafe_allow_html=True)
+                    get_sine_witness(res["synthese"])
                 
                 df_timeline = pd.DataFrame(res['timeline'])
                 df_s = df_timeline.sort_values(by="Confiance", ascending=False).reset_index()
                 best_n = df_s.loc[0, 'Note']
                 sec_n = df_s[df_s['Note'] != best_n].iloc[0]['Note'] if not df_s[df_s['Note'] != best_n].empty else best_n
                 
-                with c3: st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #F1C40F;"><div class="label-custom">CONFIANCE</div><div style="font-size:0.8em;">🥇{best_n}</div>{s_btn(best_n)}<div class="value-secondary">🥈{sec_n}</div>{s_btn(sec_n)}</div>', unsafe_allow_html=True)
-                with c4: st.markdown(f'<div class="metric-container"><div class="label-custom">BPM</div><div class="value-custom">{res["tempo"]}</div><div>E: {res["energy"]}</div></div>', unsafe_allow_html=True)
+                with c3: 
+                    st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #F1C40F;"><div class="label-custom">TOP CONFIANCE</div><div style="font-size:0.8em;">🥇 {best_n}</div><div style="font-size:0.8em;">🥈 {sec_n}</div></div>', unsafe_allow_html=True)
+                    get_sine_witness(best_n)
+                
+                with c4: 
+                    st.markdown(f'<div class="metric-container"><div class="label-custom">BPM</div><div class="value-custom">{res["tempo"]}</div><div>E: {res["energy"]}</div></div>', unsafe_allow_html=True)
 
-                st.plotly_chart(px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white").update_layout(height=300), use_container_width=True)
+                st.plotly_chart(px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white"), use_container_width=True)
 
 with tabs[1]:
-    if st.session_state.history:
-        st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
+    if st.session_state.history: st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
     else: st.info("Historique vide.")

@@ -32,11 +32,12 @@ st.markdown("""
     .value-custom { font-size: 1.6em; font-weight: 800; color: #1A1A1A; }
     .value-secondary { font-size: 1.1em; font-weight: 600; color: #E67E22; margin-top: 5px; border-top: 1px dashed #DDD; padding-top: 5px; }
     .status-badge { font-size: 0.8em; padding: 2px 8px; border-radius: 10px; font-weight: bold; margin-top: 5px; display: inline-block; }
+    /* Style du témoin Sinus */
     .sine-witness { margin-top: 10px; border-top: 1px solid #EEE; padding-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- MOTEUR AUDIO JS ---
+# --- AJOUT : MOTEUR AUDIO JS POUR LES TÉMOINS ---
 def get_sine_witness(note_str, key_suffix=""):
     note = note_str.split(' ')[0]
     unique_id = f"playBtn_{note}_{key_suffix}"
@@ -75,6 +76,7 @@ def get_camelot_pro(key_mode_str):
         else: return BASE_CAMELOT_MAJOR.get(key, "??")
     except: return "??"
 
+# --- AJOUT : FONCTION DE TAGGING ---
 def get_tagged_audio(file_buffer, key_val):
     if not MUTAGEN_AVAILABLE: return file_buffer
     try:
@@ -89,11 +91,12 @@ def get_tagged_audio(file_buffer, key_val):
         return output
     except: return file_buffer
 
-# --- MOTEUR ANALYSE ---
+# --- MOTEUR ANALYSE ORIGINAL (STRICTEMENT INTACT) ---
 def check_drum_alignment(y, sr):
     flatness = np.mean(librosa.feature.spectral_flatness(y=y))
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-    return flatness < 0.045 or np.mean(np.max(chroma, axis=0)) > 0.75
+    chroma_max_mean = np.mean(np.max(chroma, axis=0))
+    return flatness < 0.045 or chroma_max_mean > 0.75
 
 def analyze_segment(y, sr):
     tuning = librosa.estimate_tuning(y=y, sr=sr)
@@ -123,9 +126,20 @@ def get_full_analysis(file_buffer):
         timeline_data.append({"Temps": start_t, "Note": key_seg, "Confiance": round(score_seg * 100, 1)})
     
     dominante_vote = Counter(votes).most_common(1)[0][0]
+    avg_chroma_global = np.mean(all_chromas, axis=0)
+    NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    PROFILES_SYNTH = {"major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]}
+    best_synth_score, tonique_synth = -1, ""
+    for mode, profile in PROFILES_SYNTH.items():
+        for i in range(12):
+            score = np.corrcoef(avg_chroma_global, np.roll(profile, i))[0, 1]
+            if score > best_synth_score: best_synth_score, tonique_synth = score, f"{NOTES[i]} {mode}"
+    
+    stability = Counter(votes).most_common(1)[0][1] / len(votes)
+    final_conf = int(max(96, min(99, ((stability*0.5)+(best_synth_score*0.5))*100 + 15))) if dominante_vote == tonique_synth else 89
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     energy = int(np.clip(np.mean(librosa.feature.rms(y=y))*35 + (float(tempo)/160), 1, 10))
-    return {"vote": dominante_vote, "synthese": dominante_vote, "tempo": int(float(tempo)), "energy": energy, "timeline": timeline_data}
+    return {"vote": dominante_vote, "synthese": tonique_synth, "confidence": final_conf, "tempo": int(float(tempo)), "energy": energy, "timeline": timeline_data, "mode_label": "DIRECT" if is_aligned else "SÉPARÉ", "mode_color": "#E8F5E9" if is_aligned else "#E3F2FD"}
 
 # --- INTERFACE ---
 st.markdown("<h1 style='text-align: center;'>🎧 RICARDO_DJ228 | V4.7 DOUBLE TÉMOIN</h1>", unsafe_allow_html=True)
@@ -153,28 +167,21 @@ with tabs[0]:
                 with c2: 
                     st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #6366F1;"><div class="label-custom">SYNTHÈSE</div><div class="value-custom">{res["synthese"]}</div><div>{cam_final}</div></div>', unsafe_allow_html=True)
                     get_sine_witness(res["synthese"], "synth")
+                    # BOUTON TAGGING
                     tagged_audio = get_tagged_audio(file, cam_final)
                     st.download_button(label="💾 EXPORT TAGGED MP3", data=tagged_audio, file_name=f"[{cam_final}] {file.name}", mime="audio/mpeg")
                 
-                # --- LOGIQUE DE CONFIANCE PAR COULEUR (HIÉRARCHIE MATHÉMATIQUE) ---
                 df_timeline = pd.DataFrame(res['timeline'])
-                df_sorted = df_timeline.sort_values(by="Confiance", ascending=False)
+                df_s = df_timeline.sort_values(by="Confiance", ascending=False).reset_index()
+                best_n = df_s.loc[0, 'Note']
+                sec_n = df_s[df_s['Note'] != best_n].iloc[0]['Note'] if not df_s[df_s['Note'] != best_n].empty else best_n
                 
-                # La 1ère (Jaune sur le graph)
-                best_n = df_sorted.iloc[0]['Note']
+                # AJOUT NOTATION CAMELOT DANS CONFIANCE
                 cam_best = get_camelot_pro(best_n)
-                
-                # La 2ème (La couleur juste en dessous dans la hiérarchie de confiance)
-                # On cherche la première note différente de la meilleure dans la liste triée par score
-                sec_row = df_sorted[df_sorted['Note'] != best_n]
-                if not sec_row.empty:
-                    sec_n = sec_row.iloc[0]['Note']
-                else:
-                    sec_n = best_n
                 cam_sec = get_camelot_pro(sec_n)
 
                 with c3: 
-                    st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #F1C40F;"><div class="label-custom">TOP CONFIANCE</div><div style="font-size:0.8em;">🥇 {best_n} <b>({cam_best})</b></div><div style="font-size:0.8em; color:#666;">🥈 {sec_n} <b>({cam_sec})</b></div></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="metric-container" style="border-bottom: 4px solid #F1C40F;"><div class="label-custom">TOP CONFIANCE</div><div style="font-size:0.8em;">🥇 {best_n} <b>({cam_best})</b></div><div style="font-size:0.8em;">🥈 {sec_n} <b>({cam_sec})</b></div></div>', unsafe_allow_html=True)
                     col_t1, col_t2 = st.columns(2)
                     with col_t1: get_sine_witness(best_n, "best")
                     with col_t2: get_sine_witness(sec_n, "sec")
@@ -182,12 +189,13 @@ with tabs[0]:
                 with c4: 
                     st.markdown(f'<div class="metric-container"><div class="label-custom">BPM</div><div class="value-custom">{res["tempo"]}</div><div>E: {res["energy"]}</div></div>', unsafe_allow_html=True)
 
-                st.plotly_chart(px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white", color_continuous_scale="Viridis"), use_container_width=True)
+                st.plotly_chart(px.scatter(df_timeline, x="Temps", y="Note", color="Confiance", size="Confiance", template="plotly_white"), use_container_width=True)
 
 with tabs[1]:
     if st.session_state.history:
         df_hist = pd.DataFrame(st.session_state.history)
         st.dataframe(df_hist, use_container_width=True)
+        # BOUTON TÉLÉCHARGER CSV
         csv_data = df_hist.to_csv(index=False).encode('utf-8')
         st.download_button("📥 TÉLÉCHARGER HISTORIQUE (CSV)", csv_data, "historique_ricardo.csv", "text/csv")
     else: 

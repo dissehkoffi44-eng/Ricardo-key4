@@ -18,7 +18,7 @@ except ImportError:
     MUTAGEN_AVAILABLE = False
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Ricardo_DJ228 | V5 Ultra Pro", page_icon="🎧", layout="wide")
+st.set_page_config(page_title="KEY V4 Ultra Pro", page_icon="🎧", layout="wide")
 
 # Initialisation des états
 if 'history' not in st.session_state:
@@ -191,7 +191,7 @@ def get_full_analysis(file_buffer):
     }
 
 # --- INTERFACE ---
-st.markdown("<h1 style='text-align: center;'>🎧 RICARDO_DJ228 | V5 ULTRA PRO</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>🎧 KEY V4 Ultra Pro</h1>", unsafe_allow_html=True)
 
 # Zone d'importation globale (visible partout et prioritée)
 files = st.file_uploader("📂 DÉPOSEZ VOS TRACKS ICI (OU CLIQUEZ)", type=['mp3', 'wav', 'flac'], accept_multiple_files=True)

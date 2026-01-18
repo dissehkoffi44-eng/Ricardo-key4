@@ -264,7 +264,6 @@ if files:
                     <script>{get_chord_js(bid, data['key'])}</script>""", height=110)
 
             # Visualisation
-           # --- Visualisation (CORRIGÉ) ---
 with st.expander("🔍 Analyse Spectrale & Timeline"):
     col_g1, col_g2 = st.columns([2, 1])
     with col_g1:

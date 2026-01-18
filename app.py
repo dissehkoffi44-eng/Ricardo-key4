@@ -1,3 +1,4 @@
+# RCDJ228 SNIPER M3 - VERSION "TRIPLE CHECK" ULTIME
 import streamlit as st
 import librosa
 import numpy as np
@@ -6,14 +7,23 @@ import plotly.express as px
 import plotly.graph_objects as go
 from collections import Counter
 import io
+import os
 import requests
 import gc
+import json
 import streamlit.components.v1 as components
 from scipy.signal import butter, lfilter
+from datetime import datetime
+from pydub import AudioSegment
+
+# --- FORCE FFMEG PATH (WINDOWS FIX) ---
+if os.path.exists(r'C:\ffmpeg\bin'):
+    os.environ["PATH"] += os.pathsep + r'C:\ffmpeg\bin'
 
 # --- CONFIGURATION SYSTÈME ---
-st.set_page_config(page_title="DJ's Ear Pro Music Elite", page_icon="🎼", layout="wide")
+st.set_page_config(page_title="RCDJ228 SNIPER M3", page_icon="🎯", layout="wide")
 
+# Récupération des secrets
 TELEGRAM_TOKEN = st.secrets.get("TELEGRAM_TOKEN")
 CHAT_ID = st.secrets.get("CHAT_ID")
 
@@ -29,7 +39,11 @@ CAMELOT_MAP = {
 }
 
 PROFILES = {
-    "krumhansl_kessler": {
+    "sniper_triads": {
+        "major": [1.0, 0, 0, 0, 1.0, 0, 0, 1.0, 0, 0, 0, 0],
+        "minor": [1.0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0]
+    },
+    "krumhansl": {
         "major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88],
         "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
     }
@@ -38,265 +52,232 @@ PROFILES = {
 # --- STYLES CSS ---
 st.markdown("""
     <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    [data-testid="stSidebar"] {display: none;}
-    
-    .viewerBadge_container__1QSob {display: none !important;}
-    #stConnectionStatus {display: none !important;}
-    [data-testid="stStatusWidget"] {display: none !important;}
-    
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 0rem;
-        padding-left: 3rem;
-        padding-right: 3rem;
-    }
-
+    .main { background-color: #0b0e14; }
     .report-card { 
-        padding: 40px; border-radius: 25px; text-align: center; color: white; 
-        border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        padding: 40px; border-radius: 30px; text-align: center; color: white; 
+        border: 1px solid rgba(99, 102, 241, 0.3); box-shadow: 0 15px 45px rgba(0,0,0,0.6);
+        margin-bottom: 20px;
     }
-    .modulation-alert {
-        background: rgba(239, 68, 68, 0.2); color: #f87171;
-        padding: 15px; border-radius: 12px; border: 1px solid #ef4444;
-        margin-top: 20px; font-weight: bold; font-size: 1.1em;
+    .file-header {
+        background: #1f2937; color: #10b981; padding: 10px 20px; border-radius: 10px;
+        font-family: 'JetBrains Mono', monospace; font-weight: bold; margin-bottom: 10px;
+        border-left: 5px solid #10b981;
+    }
+    .root-hint {
+        background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 6px 14px;
+        border-radius: 20px; font-size: 0.85em; border: 1px solid #10b981;
+        font-family: 'JetBrains Mono', monospace;
     }
     .metric-box {
-        background: #1a1c24; border-radius: 15px; padding: 15px; text-align: center; border: 1px solid #333;
+        background: #161b22; border-radius: 15px; padding: 20px; text-align: center; border: 1px solid #30363d;
+        height: 100%; transition: 0.3s;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FONCTIONS DE TRAITEMENT ---
-
-def apply_filters(y, sr):
-    y_harm, _ = librosa.effects.hpss(y, margin=(4.0, 1.0))
-    y_harm = librosa.effects.preemphasis(y_harm)
+# --- MOTEURS DE CALCUL ---
+def apply_sniper_filters(y, sr):
+    y_harm = librosa.effects.harmonic(y, margin=4.0)
     nyq = 0.5 * sr
-    b, a = butter(4, [100/nyq, 3000/nyq], btype='band')
+    b, a = butter(4, [80/nyq, 5000/nyq], btype='band')
     return lfilter(b, a, y_harm)
 
-def solve_key(chroma_vector, coeffs, global_dom_root=None):
-    best_score = -1
-    res = {"key": "Inconnu", "score": 0}
-    cv = (chroma_vector - chroma_vector.min()) / (chroma_vector.max() - chroma_vector.min() + 1e-6)
+def get_root_note_pyin(y, sr):
+    """TRIPLE CHECK PYIN : Analyse à 25%, 50% et 75% du morceau pour une précision maximale."""
+    points = [0.25, 0.50, 0.75]
+    all_detected_notes = []
     
-    for _, p_data in PROFILES.items():
+    for p in points:
+        start_sample = int(len(y) * p)
+        # On analyse 6 secondes à chaque point (18s total)
+        end_sample = start_sample + (sr * 6)
+        y_chunk = y[start_sample:min(end_sample, len(y))]
+        
+        f0, voiced_flag, voiced_probs = librosa.pyin(y_chunk, 
+                                                     fmin=librosa.note_to_hz('C2'), 
+                                                     fmax=librosa.note_to_hz('C5'), 
+                                                     sr=sr, hop_length=1024)
+        
+        # Filtre de confiance élevé (85%)
+        valid_f0 = f0[voiced_flag & (voiced_probs > 0.85)]
+        if len(valid_f0) > 0:
+            notes = librosa.hz_to_note(valid_f0)
+            clean_notes = [n.replace(n[-1], '') for n in notes]
+            all_detected_notes.extend(clean_notes)
+            
+    if not all_detected_notes: return None
+    # On retourne la note qui revient le plus souvent sur les 3 points
+    return Counter(all_detected_notes).most_common(1)[0][0]
+
+def solve_key_sniper(chroma_vector, bass_vector, root_hint=None):
+    best_overall_score = -1
+    best_key = "Unknown"
+    
+    cv = (chroma_vector - chroma_vector.min()) / (chroma_vector.max() - chroma_vector.min() + 1e-6)
+    bv = (bass_vector - bass_vector.min()) / (bass_vector.max() - bass_vector.min() + 1e-6)
+    
+    for p_name, p_data in PROFILES.items():
         for mode in ["major", "minor"]:
             for i in range(12):
-                rotated_profile = np.roll(p_data[mode], i)
-                corr_score = np.corrcoef(cv, rotated_profile)[0, 1]
+                note_name = NOTES_LIST[i]
+                reference = np.roll(p_data[mode], i)
+                score = np.corrcoef(cv, reference)[0, 1]
                 
-                third_idx = (i + 3) % 12 if mode == "minor" else (i + 4) % 12
-                fifth_idx = (i + 7) % 12
+                # --- SYNERGIE TRIPLE CHECK ---
+                if root_hint and note_name == root_hint:
+                    score += 0.30 # Bonus de confirmation de la Root Note
+
+                if p_name == "sniper_triads": score *= 1.20 
+
+                if mode == "minor":
+                    dom_idx, leading_tone = (i + 7) % 12, (i + 11) % 12
+                    if cv[dom_idx] > 0.45 and cv[leading_tone] > 0.35: score *= 1.35 
                 
-                dom_bonus = 0
-                if global_dom_root is not None:
-                    if (i + 7) % 12 == global_dom_root and cv[global_dom_root] > 0.35:
-                        dom_bonus = coeffs['dom_b']
+                if bv[i] > 0.6: score += (bv[i] * 0.25)
+                
+                if score > best_overall_score:
+                    best_overall_score = score
+                    best_key = f"{note_name} {mode}"
+                    
+    return {"key": best_key, "score": best_overall_score}
 
-                final_score = corr_score + (coeffs['third_b'] * cv[third_idx]) + (coeffs['fifth_b'] * cv[fifth_idx]) + dom_bonus
-
-                if final_score > best_score:
-                    best_score = final_score
-                    res = {"key": f"{NOTES_LIST[i]} {mode}", "score": corr_score}
-    return res
-
-@st.cache_data(show_spinner=False)
-def analyze_full_engine(file_bytes, file_name, coeffs):
-    with io.BytesIO(file_bytes) as b:
-        y, sr = librosa.load(b, sr=22050, mono=True)
-    
-    tuning = librosa.estimate_tuning(y=y, sr=sr)
-    y_filt = apply_filters(y, sr)
-    
-    chroma_complex = librosa.feature.chroma_cqt(y=y_filt, sr=sr, tuning=tuning, bins_per_octave=24, hop_length=512)
-    global_chroma_avg = np.mean(chroma_complex, axis=1)
-    
-    top_2_idx = np.argsort(global_chroma_avg)[-2:]
-    n_p, n_s = top_2_idx[1], top_2_idx[0]
-    global_dom_root = n_s if (n_p + 7) % 12 == n_s else (n_p if (n_s + 7) % 12 == n_p else None)
+def process_audio_precision(file_bytes, file_name, _progress_callback=None):
+    try:
+        with io.BytesIO(file_bytes) as buf:
+            y, sr = librosa.load(buf, sr=22050, mono=True)
+    except: return None
 
     duration = librosa.get_duration(y=y, sr=sr)
-    step = 6 
-    timeline = []
-    votes = Counter()
+    y_filt = apply_sniper_filters(y, sr)
     
-    for start in range(0, int(duration) - step, step):
-        seg = y_filt[int(start*sr):int((start+step)*sr)]
-        if np.max(np.abs(seg)) < 0.01: continue
+    # ÉTAPE 1 : Triple Check Root Sniper
+    if _progress_callback: _progress_callback(10, "Triple Check PYIN (25% | 50% | 75%)...")
+    root_hint = get_root_note_pyin(y, sr)
+    
+    # ÉTAPE 2 : Analyse Harmonique
+    tuning = librosa.estimate_tuning(y=y, sr=sr)
+    step, timeline, votes = 2, [], Counter()
+    segments = list(range(0, max(1, int(duration) - step), 2))
+    
+    for idx, start in enumerate(segments):
+        if _progress_callback:
+            prog = 20 + int((idx / len(segments)) * 75)
+            _progress_callback(prog, f"Scan Sniper : {start}s")
+
+        idx_s, idx_e = int(start * sr), int((start + step) * sr)
+        seg = y_filt[idx_s:idx_e]
+        if len(seg) < 1000 or np.max(np.abs(seg)) < 0.01: continue
         
-        c_seg = librosa.feature.chroma_cqt(y=seg, sr=sr, tuning=tuning, bins_per_octave=24)
-        c_avg = np.mean(c_seg, axis=1)
-        res = solve_key(c_avg, coeffs, global_dom_root=global_dom_root)
+        c_raw = librosa.feature.chroma_cqt(y=seg, sr=sr, tuning=tuning, n_chroma=24, bins_per_octave=24)
+        c_avg = np.mean((c_raw[::2, :] + c_raw[1::2, :]) / 2, axis=1)
         
-        weight = 1.5 if (start < 15 or start > (duration - 15)) else 1.0
+        # Bass Priority segmentaire
+        nyq = 0.5 * sr
+        b, a = butter(2, 150/nyq, btype='low')
+        b_seg = np.mean(librosa.feature.chroma_cqt(y=lfilter(b, a, y[idx_s:idx_e]), sr=sr, n_chroma=12), axis=1)
+        
+        res = solve_key_sniper(c_avg, b_seg, root_hint=root_hint)
+        weight = 3.0 if (start < 10 or start > (duration - 15)) else 1.0
         votes[res['key']] += int(res['score'] * 100 * weight)
         timeline.append({"Temps": start, "Note": res['key'], "Conf": res['score']})
 
-    most_common = votes.most_common(2)
-    main_key = most_common[0][0]
-    main_conf = int(np.mean([t['Conf'] for t in timeline if t['Note'] == main_key]) * 100)
-    
-    target_key, target_conf, modulation_detected = None, 0, False
-    if len(most_common) > 1:
-        second_key = most_common[1][0]
-        count_second = sum(1 for t in timeline if t['Note'] == second_key)
-        if count_second > (len(timeline) * coeffs['mod_threshold']): 
-            modulation_detected = True
-            target_key = second_key
-            target_conf = int(np.mean([t['Conf'] for t in timeline if t['Note'] == second_key]) * 100)
+    if not votes: return None
 
-    _, y_perc = librosa.effects.hpss(y)
-    tempo, _ = librosa.beat.beat_track(y=y_perc, sr=sr)
+    most_common = votes.most_common(1)
+    final_key = most_common[0][0]
+    final_conf = int(np.mean([t['Conf'] for t in timeline if t['Note'] == final_key]) * 100)
     
-    output = {
-        "key": main_key, "camelot": CAMELOT_MAP.get(main_key, "??"),
-        "conf": main_conf,
-        "tempo": int(float(tempo)),
-        "tuning_hz": round(440 * (2**(tuning/12)), 1),
-        "pitch_offset": round(tuning, 2),
-        "timeline": timeline, "chroma": global_chroma_avg,
-        "modulation": modulation_detected, 
-        "target_key": target_key,
-        "target_conf": target_conf,
-        "target_camelot": CAMELOT_MAP.get(target_key, "??") if target_key else None,
-        "name": file_name
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    
+    res_obj = {
+        "key": final_key, "camelot": CAMELOT_MAP.get(final_key, "??"),
+        "conf": min(final_conf, 99), "tempo": int(float(tempo)),
+        "root_hint": root_hint, "name": file_name,
+        "tuning": round(440 * (2**(tuning/12)), 1), "timeline": timeline,
+        "chroma": np.mean(librosa.feature.chroma_cqt(y=y_filt, sr=sr, tuning=tuning), axis=1).tolist()
     }
-    del y, y_filt, y_perc; gc.collect()
-    return output
+    
+    # Telegram
+    if TELEGRAM_TOKEN and CHAT_ID:
+        try:
+            msg = f"🎯 *SNIPER M3 - TRIPLE CHECK*\n📄 `{file_name}`\n🎹 *{final_key.upper()}*\n🎡 Camelot: {res_obj['camelot']}\n✅ Confiance: {res_obj['conf']}%"
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={'chat_id': CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'})
+        except: pass
 
-def get_piano_js(button_id, key_name):
-    if not key_name or " " not in key_name: return ""
-    n, mode = key_name.split()
+    return res_obj
+
+def get_chord_js(btn_id, key_str):
+    note, mode = key_str.split()
     return f"""
-    document.getElementById('{button_id}').onclick = function() {{
+    document.getElementById('{btn_id}').onclick = function() {{
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const freqs = {{'C':261.6,'C#':277.2,'D':293.7,'D#':311.1,'E':329.6,'F':349.2,'F#':370.0,'G':392.0,'G#':415.3,'A':440.0,'A#':466.2,'B':493.9}};
-        const chord = '{mode}' === 'minor' ? [0, 3, 7, 12] : [0, 4, 7, 12];
-        chord.forEach((interval) => {{
-            const baseFreq = freqs['{n}'] * Math.pow(2, interval/12);
-            [1, 2].forEach((h) => {{
-                const osc = ctx.createOscillator(); const g = ctx.createGain();
-                osc.type = h === 1 ? 'triangle' : 'sine';
-                osc.frequency.setValueAtTime(baseFreq * h, ctx.currentTime);
-                g.gain.setValueAtTime(0, ctx.currentTime);
-                g.gain.linearRampToValueAtTime(0.1/h, ctx.currentTime + 0.05);
-                g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
-                osc.connect(g); g.connect(ctx.destination);
-                osc.start(); osc.stop(ctx.currentTime + 1.5);
-            }});
+        const intervals = '{mode}' === 'minor' ? [0, 3, 7, 12] : [0, 4, 7, 12];
+        intervals.forEach(i => {{
+            const o = ctx.createOscillator(); const g = ctx.createGain();
+            o.type = 'triangle'; o.frequency.setValueAtTime(freqs['{note}'] * Math.pow(2, i/12), ctx.currentTime);
+            g.gain.setValueAtTime(0, ctx.currentTime);
+            g.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.1);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.0);
+            o.connect(g); g.connect(ctx.destination);
+            o.start(); o.stop(ctx.currentTime + 2.0);
         }});
-    }};
-    """
-
-def send_telegram_expert(data, fig_timeline, fig_radar):
-    if not TELEGRAM_TOKEN or not CHAT_ID: return
-    mod_text = ""
-    if data['modulation']:
-        mod_text = (f"⚠️ *MODULATION DÉTECTÉE*\n"
-                    f"└ Vers : `{data['target_key']}` ({data['target_camelot']})\n"
-                    f"└ Confiance Mod : `{data['target_conf']}%` \n\n")
-
-    msg = (f"🎼 *DJ'S EAR PRO ELITE REPORT*\n"
-           f"━━━━━━━━━━━━━━━━━━━━\n"
-           f"📂 *Fichier:* `{data['name']}`\n\n"
-           f"✅ *TONALITÉ PRINCIPALE*\n"
-           f"└ Note : `{data['key'].upper()}`\n"
-           f"└ Camelot : `{data['camelot']}`\n"
-           f"└ Confiance : `{data['conf']}%`\n\n"
-           f"{mod_text}"
-           f"📊 *MÉTRIQUES*\n"
-           f"└ Tempo : `{data['tempo']} BPM`\n"
-           f"└ Tuning : `{data['tuning_hz']} Hz` (`{data['pitch_offset']}`c)\n"
-           f"━━━━━━━━━━━━━━━━━━━━")
-    try:
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                     json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-        for fig, title in [(fig_timeline, "Flux"), (fig_radar, "Signature")]:
-            img_bytes = fig.to_image(format="png", engine="kaleido")
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto", 
-                         data={"chat_id": CHAT_ID, "caption": f"📊 {title} - {data['name']}"},
-                         files={"photo": img_bytes})
-    except Exception as e:
-        st.error(f"Erreur Telegram: {e}")
+    }}; """
 
 # --- INTERFACE ---
-st.title("🎧 DJ's Ear Pro Elite")
-st.markdown("### Haute Précision & Intelligence Harmonique")
+st.title("🎯 RCDJ228 SNIPER M3")
+st.caption("Version Ultime : Triple Check PYIN & Triad Precision")
 
-# CONFIGURATION DU CERVEAU (Mise à jour)
-with st.container():
-    col_set1, col_set2 = st.columns([1, 1])
-    with col_set1:
-        analysis_mode = st.select_slider(
-            "Mode d'analyse",
-            options=["Stable (Standard)", "Mix Set (Sensible)", "Structure (Ultra-Détection)"],
-            help="Stable: Analyse robuste. Mix Set: Pour les transitions DJ. Structure: Détecte le moindre changement."
-        )
-    
-    # Mapping des coefficients selon le mode choisi
-    if analysis_mode == "Stable (Standard)":
-        current_coeffs = {'third_b': 0.15, 'fifth_b': 0.05, 'dom_b': 0.18, 'mod_threshold': 0.22}
-    elif analysis_mode == "Mix Set (Sensible)":
-        current_coeffs = {'third_b': 0.18, 'fifth_b': 0.08, 'dom_b': 0.25, 'mod_threshold': 0.15}
-    else: # Ultra-Détection
-        current_coeffs = {'third_b': 0.20, 'fifth_b': 0.10, 'dom_b': 0.30, 'mod_threshold': 0.08}
-
-files = st.file_uploader("📂 Déposer vos morceaux (MP3, WAV, FLAC)", type=['mp3','wav','flac'], accept_multiple_files=True)
+files = st.file_uploader("📂 Déposez vos fichiers audio", type=['mp3','wav','m4a','flac'], accept_multiple_files=True)
 
 if files:
-    files_to_process = list(reversed(files))
-    
-    for f in files_to_process:
-        file_bytes = f.read()
-        with st.spinner(f"Analyse [{analysis_mode}] de {f.name}..."):
-            data = analyze_full_engine(file_bytes, f.name, current_coeffs)
+    for i, f in enumerate(reversed(files)):
+        with st.status(f"🎯 Sniper Scan : {f.name}...") as status:
+            prog_bar = st.progress(0)
+            data = process_audio_precision(f.getvalue(), f.name, _progress_callback=lambda v, m: prog_bar.progress(v))
+            status.update(label=f"✅ {f.name} Analysé", state="complete")
         
-        with st.expander(f"📊 ANALYSE TERMINÉE : {data['name']}", expanded=True):
-            bg = "linear-gradient(135deg, #0f172a, #1e3a8a)" if not data['modulation'] else "linear-gradient(135deg, #1e1b4b, #7f1d1d)"
+        if data:
+            st.markdown(f"<div class='file-header'>📄 {data['name']}</div>", unsafe_allow_html=True)
+            
+            # Affichage Principal
+            color = "linear-gradient(135deg, #065f46, #064e3b)" if data['conf'] > 88 else "linear-gradient(135deg, #1e293b, #0f172a)"
             st.markdown(f"""
-                <div class="report-card" style="background:{bg};">
-                    <p style="opacity:0.7; letter-spacing:2px;">TONALITÉ DÉTECTÉE ({analysis_mode})</p>
-                    <h1 style="font-size:5.5em; margin:10px 0;">{data['key'].upper()}</h1>
-                    <p style="font-size:1.8em;">CAMELOT : <b>{data['camelot']}</b> | CONFIANCE : <b>{data['conf']}%</b></p>
-                    {f"<div class='modulation-alert'>⚠️ MODULATION VERS {data['target_key'].upper()} ({data['target_camelot']}) | CONF: {data['target_conf']}%</div>" if data['modulation'] else ""}
-                </div>
-            """, unsafe_allow_html=True)
+                <div class="report-card" style="background:{color};">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span class="root-hint">🎯 PYIN ROOT: {data['root_hint']}</span>
+                        <span class="root-hint">📡 {data['tuning']} Hz</span>
+                    </div>
+                    <h1 style="font-size:6.5em; margin:15px 0; font-weight:900; letter-spacing:-2px;">{data['key'].upper()}</h1>
+                    <p style="font-size:1.6em; opacity:0.9; font-weight:bold;">CAMELOT: {data['camelot']} • CONFIANCE: {data['conf']}%</p>
+                </div>""", unsafe_allow_html=True)
+            
+            # Métriques
+            m1, m2, m3 = st.columns(3)
+            with m1: st.markdown(f"<div class='metric-box'><b>TEMPO ANALYSÉ</b><br><span style='font-size:2.2em; color:#10b981;'>{data['tempo']}</span><br>BPM</div>", unsafe_allow_html=True)
+            with m2: st.markdown(f"<div class='metric-box'><b>QUALITÉ SIGNAL</b><br><span style='font-size:2.2em; color:#f59e0b;'>HIGH</span><br>Sniper M3</div>", unsafe_allow_html=True)
+            with m3:
+                bid = f"pl_{i}_{hash(data['name'])}"
+                components.html(f"""<button id="{bid}" style="width:100%; height:95px; background:linear-gradient(45deg, #4F46E5, #7C3AED); color:white; border:none; border-radius:15px; cursor:pointer; font-weight:bold; font-size:16px; box-shadow:0 4px 15px rgba(0,0,0,0.3);">🔊 ÉCOUTER L'ACCORD</button>
+                    <script>{get_chord_js(bid, data['key'])}</script>""", height=110)
 
-            st.write("---")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown(f"<div class='metric-box'><b>TEMPO</b><br><span style='font-size:1.8em;'>{data['tempo']} BPM</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='metric-box' style='margin-top:10px;'><b>TUNING</b><br><span>{data['tuning_hz']} Hz ({data['pitch_offset']} cents)</span></div>", unsafe_allow_html=True)
-            with c2:
-                btn_id = f"play_{hash(f.name)}"
-                st.markdown(f"<center><b>TESTER L'ACCORD</b></center>", unsafe_allow_html=True)
-                components.html(f"""<button id="{btn_id}" style="width:100%; height:110px; background:linear-gradient(90deg, #4F46E5, #7C3AED); color:white; border:none; border-radius:15px; cursor:pointer; font-weight:bold; font-size:1.2em; box-shadow:0 4px 15px rgba(0,0,0,0.3);">🎹 JOUER L'ACCORD</button><script>{get_piano_js(btn_id, data['key'])}</script>""", height=130)
-            with c3:
-                if data['modulation']:
-                    m_id = f"mod_{hash(f.name)}"
-                    st.markdown(f"<center><b>TESTER MODULATION</b></center>", unsafe_allow_html=True)
-                    components.html(f"""<button id="{m_id}" style="width:100%; height:110px; background:linear-gradient(90deg, #ef4444, #b91c1c); color:white; border:none; border-radius:15px; cursor:pointer; font-weight:bold; font-size:1.2em; box-shadow:0 4px 15px rgba(0,0,0,0.3);">🎹 JOUER MOD ({data['target_camelot']})</button><script>{get_piano_js(m_id, data['target_key'])}</script>""", height=130)
-                else:
-                    st.markdown("<div style='height:130px; display:flex; align-items:center; justify-content:center; opacity:0.3; border:2px dashed #444; border-radius:15px;'>Stabilité Harmonique</div>", unsafe_allow_html=True)
+            # Visualisation
+            with st.expander("🔍 Analyse Spectrale & Timeline"):
+                col_g1, col_g2 = st.columns([2, 1])
+                with col_g1:
+                    df_tl = pd.DataFrame(data['timeline'])
+                    fig = px.scatter(df_tl, x="Temps", y="Note", color="Conf", template="plotly_dark", category_orders={"Note": NOTES_ORDER}, title="Stabilité Harmonique")
+                    st.plotly_chart(fig, use_container_width=True)
+                with col_g2:
+                    fig_pol = go.Figure(data=go.Scatterpolar(r=data['chroma'], theta=NOTES_LIST, fill='toself', line_color='#10b981'))
+                    fig_pol.update_layout(template="plotly_dark", polar=dict(radialaxis=dict(visible=False)), margin=dict(l=30,r=30,t=30,b=30))
+                    st.plotly_chart(fig_pol, use_container_width=True)
+            
+            st.markdown("<br><hr style='border:0; height:1px; background:rgba(255,255,255,0.1);'><br>", unsafe_allow_html=True)
 
-            gl, gr = st.columns([2, 1])
-            with gl:
-                df_tl = pd.DataFrame(data['timeline'])
-                fig_l = px.line(df_tl, x="Temps", y="Note", markers=True, template="plotly_dark", category_orders={"Note": NOTES_ORDER}, title="Flux Harmonique Dynamique")
-                st.plotly_chart(fig_l, use_container_width=True)
-            with gr:
-                fig_r = go.Figure(data=go.Scatterpolar(r=data['chroma'], theta=NOTES_LIST, fill='toself', line_color='#818cf8'))
-                fig_r.update_layout(template="plotly_dark", title="Signature Chromatique", polar=dict(radialaxis=dict(visible=False)))
-                st.plotly_chart(fig_r, use_container_width=True)
-
-            send_telegram_expert(data, fig_l, fig_r)
-            st.toast(f"✅ Rapport Telegram envoyé pour {f.name}")
-
-    if st.button("🧹 Vider la mémoire"):
-        st.cache_data.clear(); st.rerun()
-else:
-    st.info("Prêt pour l'analyse profonde (24-bins + Tuning + V-i Logic).")
+with st.sidebar:
+    st.markdown("### 🛠️ Paramètres Sniper")
+    if st.button("🗑️ Effacer l'Historique"):
+        st.cache_data.clear()
+        st.rerun()
+    st.info("Algorithme : RCDJ228 SNIPER M3\nMode : Triple Check PYIN Enabled\nPrécision : Industrielle")

@@ -99,7 +99,7 @@ def get_root_note_pyin(y, sr):
                                                      sr=sr, hop_length=1024)
         
         # Filtre de confiance élevé (85%)
-        valid_f0 = f0[voiced_flag & (voiced_probs > 0.85)]
+        valid_f0 = f0[voiced_flag & (voiced_probs > 0.65)]
         if len(valid_f0) > 0:
             notes = librosa.hz_to_note(valid_f0)
             clean_notes = [n.replace(n[-1], '') for n in notes]

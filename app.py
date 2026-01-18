@@ -265,7 +265,7 @@ if files:
 
             # Visualisation
             with st.expander("🔍 Analyse Spectrale & Timeline"):
-    col_g1, col_g2 = st.columns([2, 1])
+             col_g1, col_g2 = st.columns([2, 1])
     with col_g1:
         df_tl = pd.DataFrame(data['timeline'])
         fig = px.scatter(df_tl, x="Temps", y="Note", color="Conf", 

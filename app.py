@@ -240,7 +240,7 @@ if files:
         if data:
             st.markdown(f"<div class='file-header'>📄 {data['name']}</div>", unsafe_allow_html=True)
             
-            # Affichage Principal
+            # 1. Affichage Principal (Report Card)
             color = "linear-gradient(135deg, #065f46, #064e3b)" if data['conf'] > 88 else "linear-gradient(135deg, #1e293b, #0f172a)"
             st.markdown(f"""
                 <div class="report-card" style="background:{color};">
@@ -252,12 +252,14 @@ if files:
                     <p style="font-size:1.6em; opacity:0.9; font-weight:bold;">CAMELOT: {data['camelot']} • CONFIANCE: {data['conf']}%</p>
                 </div>""", unsafe_allow_html=True)
             
-            # Métriques
+            # 2. Métriques
             m1, m2, m3 = st.columns(3)
-            with m1: st.markdown(f"<div class='metric-box'><b>TEMPO ANALYSÉ</b><br><span style='font-size:2.2em; color:#10b981;'>{data['tempo']}</span><br>BPM</div>", unsafe_allow_html=True)
-            with m2: st.markdown(f"<div class='metric-box'><b>QUALITÉ SIGNAL</b><br><span style='font-size:2.2em; color:#f59e0b;'>HIGH</span><br>Sniper M3</div>", unsafe_allow_html=True)
+            with m1: 
+                st.markdown(f"<div class='metric-box'><b>TEMPO ANALYSÉ</b><br><span style='font-size:2.2em; color:#10b981;'>{data['tempo']}</span><br>BPM</div>", unsafe_allow_html=True)
+            with m2: 
+                st.markdown(f"<div class='metric-box'><b>QUALITÉ SIGNAL</b><br><span style='font-size:2.2em; color:#f59e0b;'>HIGH</span><br>Sniper M3</div>", unsafe_allow_html=True)
             with m3:
-                bid = f"pl_{i}_{hash(data['name'])}"
+                bid = f"pl_{i}_{abs(hash(data['name']))}"
                 components.html(f"""<button id="{bid}" style="width:100%; height:95px; background:linear-gradient(45deg, #4F46E5, #7C3AED); color:white; border:none; border-radius:15px; cursor:pointer; font-weight:bold; font-size:16px; box-shadow:0 4px 15px rgba(0,0,0,0.3);">🔊 ÉCOUTER L'ACCORD</button>
                     <script>{get_chord_js(bid, data['key'])}</script>""", height=110)
 

@@ -262,18 +262,27 @@ if files:
                     <script>{get_chord_js(bid, data['key'])}</script>""", height=110)
 
             # Visualisation
-            with st.expander("🔍 Analyse Spectrale & Timeline"):
-                col_g1, col_g2 = st.columns([2, 1])
-                with col_g1:
-                    df_tl = pd.DataFrame(data['timeline'])
-                    fig = px.scatter(df_tl, x="Temps", y="Note", color="Conf", template="plotly_dark", category_orders={"Note": NOTES_ORDER}, title="Stabilité Harmonique")
-                    st.plotly_chart(fig, use_container_width=True)
-                with col_g2:
-                    fig_pol = go.Figure(data=go.Scatterpolar(r=data['chroma'], theta=NOTES_LIST, fill='toself', line_color='#10b981'))
-                    fig_pol.update_layout(template="plotly_dark", polar=dict(radialaxis=dict(visible=False)), margin=dict(l=30,r=30,t=30,b=30))
-                    st.plotly_chart(fig_pol, use_container_width=True)
-            
-            st.markdown("<br><hr style='border:0; height:1px; background:rgba(255,255,255,0.1);'><br>", unsafe_allow_html=True)
+           # --- Visualisation (CORRIGÉ) ---
+with st.expander("🔍 Analyse Spectrale & Timeline"):
+    col_g1, col_g2 = st.columns([2, 1])
+    with col_g1:
+        df_tl = pd.DataFrame(data['timeline'])
+        fig = px.scatter(df_tl, x="Temps", y="Note", color="Conf", 
+                         template="plotly_dark", 
+                         category_orders={"Note": NOTES_ORDER}, 
+                         title="Stabilité Harmonique")
+        # AJOUT D'UNE KEY UNIQUE ICI
+        st.plotly_chart(fig, use_container_width=True, key=f"scatter_{i}_{hash(data['name'])}")
+        
+    with col_g2:
+        fig_pol = go.Figure(data=go.Scatterpolar(r=data['chroma'], 
+                            theta=NOTES_LIST, fill='toself', 
+                            line_color='#10b981'))
+        fig_pol.update_layout(template="plotly_dark", 
+                              polar=dict(radialaxis=dict(visible=False)), 
+                              margin=dict(l=30,r=30,t=30,b=30))
+        # AJOUT D'UNE KEY UNIQUE ICI AUSSI
+        st.plotly_chart(fig_pol, use_container_width=True, key=f"polar_{i}_{hash(data['name'])}")
 
 with st.sidebar:
     st.markdown("### 🛠️ Paramètres Sniper")

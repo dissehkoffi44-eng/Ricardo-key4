@@ -265,7 +265,7 @@ if files:
 
             # Visualisation
            # --- Visualisation (CORRIGÉ) ---
-with st.expander("🔍 Analyse Spectrale & Timeline"):
+           with st.expander("🔍 Analyse Spectrale & Timeline"):
     col_g1, col_g2 = st.columns([2, 1])
     with col_g1:
         df_tl = pd.DataFrame(data['timeline'])
